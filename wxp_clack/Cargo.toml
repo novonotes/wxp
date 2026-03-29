@@ -1,0 +1,15 @@
+[package]
+name = "wxp_clack"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Integration utilities for wxp and clack."
+repository = "https://github.com/novonotes/wxp"
+readme = "../README.md"
+
+[dependencies]
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", rev = "9f2ccb40", features = ["gui"] }
+wxp = { path = "../wxp" }
+
+[lints]
+workspace = true

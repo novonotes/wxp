@@ -1,0 +1,47 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// フロントエンドからのinvokeリクエスト
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct InvokeRequest {
+    pub(crate) cmd: String,
+    pub(crate) callback: u32,
+    pub(crate) error: u32,
+    #[serde(default)]
+    pub(crate) inner: InvokeBody,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct InvokeBody {
+    #[serde(flatten)]
+    pub(crate) args: Value,
+}
+
+/// フロントエンドへのレスポンス
+#[derive(Debug, Serialize)]
+pub(super) struct InvokeResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) value: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) error: Option<Value>,
+}
+
+impl InvokeResponse {
+    pub(super) fn success(value: Value) -> Self {
+        Self {
+            value: Some(value),
+            error: None,
+        }
+    }
+
+    pub(super) fn error<E: Serialize>(error: E) -> Self {
+        Self {
+            value: None,
+            error: Some(
+                serde_json::to_value(error)
+                    .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {}", e))),
+            ),
+        }
+    }
+}

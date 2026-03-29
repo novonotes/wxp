@@ -27,7 +27,8 @@ git submodule update --init --recursive
 
 ### Rust
 
-`run_loop` は別リポジトリから `git` + `rev` 固定で参照しています。
+`run_loop` は将来的に別リポジトリを `git` + `rev` 固定で参照する前提です。
+現時点では GitHub Actions での公開 CI を通すため、このリポジトリ内に vendored copy を同梱しています。
 
 ```sh
 cargo check --workspace --all-targets

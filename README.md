@@ -16,6 +16,7 @@
 - Rust クレートは `git` + `rev` 固定で利用してください。
 - `@novonotes/webview-bridge` は当面 npm publish せず、tarball 配布を前提にします。
 - API 安定後に `crates.io` / npm publish を検討します。
+- 初回の公開版は `v0.1.0-alpha.1` を想定しています。
 
 ## セットアップ
 
@@ -46,6 +47,12 @@ npm pack
 ```
 
 生成された tarball を利用側でインストールしてください。
+
+GitHub Releases に添付された tarball を使う場合は、例えば次のようにインストールします。
+
+```sh
+npm install https://github.com/novonotes/wxp/releases/download/v0.1.0-alpha.1/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+```
 
 ## CI
 

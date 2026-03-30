@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["host_window", "wxp", "wxp_clack"]
+
+[workspace.lints.rust]
+unreachable_pub = "deny"

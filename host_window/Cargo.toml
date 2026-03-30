@@ -1,0 +1,53 @@
+[package]
+name = "host_window"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Host window utilities for plugin environments."
+repository = "https://github.com/novonotes/wxp"
+readme = "../README.md"
+
+[dependencies]
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSString", "NSThread"] }
+objc2-app-kit = { version = "0.2", features = [
+    "NSWindow",
+    "NSView",
+    "NSApplication",
+    "NSScreen",
+    "NSEvent",
+    "NSResponder",
+    "NSGraphics",
+] }
+core-graphics = "0.23"
+foreign-types = "0.5"
+core-foundation = "0.9"
+once_cell = "1.20"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = [
+    "errhandlingapi",
+    "winuser",
+    "libloaderapi",
+    "windef",
+    "minwindef",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11 = { version = "2.21", features = ["xlib"] }
+
+[dev-dependencies]
+novonotes_run_loop = { path = "../vendor/run_loop" }
+ctrlc = "3.4"
+log = "0.4"
+
+[[test]]
+name = "run_loop_integration_test"
+path = "tests/run_loop_integration_test.rs"
+harness = false
+
+[lints]
+workspace = true

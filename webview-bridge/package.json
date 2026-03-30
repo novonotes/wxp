@@ -1,6 +1,6 @@
 {
 	"name": "@novonotes/webview-bridge",
-	"version": "0.1.0",
+	"version": "0.1.0-alpha.1",
 	"description": "Universal WebView bridge for Tauri apps and wry-based plugins",
 	"main": "dist/index.js",
 	"module": "dist/index.mjs",

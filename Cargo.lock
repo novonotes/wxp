@@ -1602,7 +1602,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "host_window"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
@@ -5091,7 +5091,7 @@ dependencies = [
 
 [[package]]
 name = "wxp"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5116,7 +5116,7 @@ dependencies = [
 
 [[package]]
 name = "wxp_clack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clack-extensions",
  "wxp",

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WXP Example Gain</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div id="app">
+      <main class="panel">
+        <p class="eyebrow">WXP Example Plugin</p>
+        <h1 class="title">Gain</h1>
+        <div class="meter">
+          <div class="value" id="gain-value">1.00x</div>
+          <div class="db" id="gain-db">0.0 dB</div>
+        </div>
+        <section class="knob-zone">
+          <button class="knob" id="gain-knob" type="button" aria-label="Gain knob">
+            <div class="knob-track"></div>
+            <div class="knob-fill" id="knob-fill"></div>
+            <div class="knob-indicator" id="knob-indicator"></div>
+          </button>
+        </section>
+        <p class="hint">ドラッグまたはホイールで調整</p>
+      </main>
+    </div>
+  </body>
+</html>

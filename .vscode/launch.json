@@ -1,0 +1,27 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Debug example_gain_plugin in Reaper",
+			"type": "lldb",
+			"request": "launch",
+			"program": "/Applications/REAPER.app/Contents/MacOS/REAPER",
+			"osx": {
+				"program": "/Applications/REAPER.app/Contents/MacOS/REAPER"
+			},
+			"linux": {
+				"program": "~/opt/REAPER/reaper"
+			},
+			"windows": {
+				"program": "C:/Program Files/REAPER (x64)/reaper.exe"
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"env": {
+				"RUST_BACKTRACE": "1"
+			},
+			"terminal": "console",
+			"preLaunchTask": "build-and-install-example-gain-plugin"
+		}
+	]
+}

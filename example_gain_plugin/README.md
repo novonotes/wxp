@@ -8,22 +8,9 @@ wxp プラグイン開発に必要な要素が一通り含まれています。
 
 ```
 example_gain_plugin/
-├── src-plugin/          # Rust（プラグイン本体）
-│   ├── src/
-│   │   ├── lib.rs       # CLAP エントリーポイント、RunLoop の初期化
-│   │   ├── plugin.rs    # プラグイン定義、共有状態、コマンドハンドラ登録
-│   │   ├── audio.rs     # オーディオ処理（リアルタイムスレッド）
-│   │   ├── params.rs    # パラメータ公開、状態の保存・復元
-│   │   └── gui.rs       # WebView GUI の生成・リサイズ管理
-│   ├── build.rs         # リリースビルド時に GUI アセットを ZIP 化
-│   └── Cargo.toml
-└── src-gui/             # TypeScript + HTML/CSS（GUI フロントエンド）
-    ├── index.html       # ノブ UI の HTML
-    ├── src/
-    │   ├── main.ts      # ノブ操作、Rust との通信ロジック
-    │   └── style.css    # ノブ・パネルのスタイル
-    ├── vite.config.ts
-    └── package.json
+├── script/                # ビルド・インストール用スクリプト
+├── src-plugin/            # Rust（プラグイン本体）
+└── src-gui/               # TypeScript + HTML/CSS（GUI フロントエンド）
 ```
 
 ## アーキテクチャ概要
@@ -100,34 +87,35 @@ Channel コールバック        ◄──────    RunLoopSender → Cha
 - Rust（cargo）
 - Node.js（npm）
 
+### ビルド & インストール
+
+`script/` 配下のスクリプトで GUI ビルド → cargo ビルド → .clap バンドル作成 → インストールまで一括で行えます。
+
+```sh
+# デバッグビルド＆インストール（引数省略時は Debug ビルド）
+./script/build_and_install.sh
+```
+
+インストール先は OS によって異なります:
+
+| OS | インストール先 |
+|----|--------------|
+| macOS | `~/Library/Audio/Plug-Ins/CLAP/` |
+| Windows | `%LOCALAPPDATA%/Programs/Common/CLAP/` |
+| Linux | `~/.clap/` |
+
 ### GUI のデバッグ開発
 
 デバッグビルドでは Vite dev server に接続するため、ホットリロードが使えます。
 
 ```sh
-# 1. GUI の依存関係をインストール
+# 1. GUI の依存関係をインストール & Vite dev server を起動（localhost:5173）
 cd example_gain_plugin/src-gui
 npm install
-
-# 2. Vite dev server を起動（localhost:5173）
 npm run dev
 
-# 3. 別ターミナルでプラグインをデバッグビルド
-cargo build -p wxp_example_gain_plugin
-```
-
-### リリースビルド
-
-リリースビルドでは GUI アセットがバイナリに埋め込まれます。
-
-```sh
-# 1. GUI をビルド（dist/ に出力される）
-cd wxp/example_gain_plugin/src-gui
-npm install
-npm run build
-
-# 2. プラグインをリリースビルド（build.rs が dist/ を ZIP 化して埋め込む）
-cargo build -p wxp_example_gain_plugin --release
+# 2. 別ターミナルでプラグインをデバッグビルド＆インストール
+./script/build_and_install.sh
 ```
 
 ## 主要な依存クレート

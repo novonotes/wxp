@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-and-install-example-gain-plugin",
+			"type": "shell",
+			"command": "./example_gain_plugin/script/build_and_install.sh",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new",
+				"close": true
+			},
+			"problemMatcher": "$rustc"
+		}
+	]
+}

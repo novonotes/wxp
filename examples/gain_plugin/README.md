@@ -80,54 +80,6 @@ Channel コールバック        ◄──────    RunLoopSender → Cha
 5. JS: Channel コールバックで render() が呼ばれ、UI が更新される
 ```
 
-## 開発の始め方
-
-### 前提条件
-
-- Rust（cargo）
-- Node.js（npm）
-
-### ビルド & インストール
-
-`script/` 配下のスクリプトで GUI ビルド → cargo ビルド → .clap バンドル作成に加え、
-macOS / Windows では VST3 / AU / standalone の補助ビルドも行えます。
-
-```sh
-# デバッグビルド＆インストール（引数省略時は Debug ビルド）
-./script/build_and_install.sh
-
-# CLAP のみビルド＆インストール
-CLAP_ONLY=1 ./script/build_and_install.sh
-
-# standalone のみビルド
-./script/build_standalone.sh
-```
-
-インストール先は OS によって異なります:
-
-| OS | インストール先 |
-|----|--------------|
-| macOS | `~/Library/Audio/Plug-Ins/CLAP/` |
-| Windows | `%LOCALAPPDATA%/Programs/Common/CLAP/` |
-| Linux | `~/.clap/` |
-
-macOS では `build_and_install.sh` 実行時に `~/Library/Audio/Plug-Ins/VST3/` と
-`~/Library/Audio/Plug-Ins/Components/` へのインストールも行います。
-
-### GUI のデバッグ開発
-
-デバッグビルドでは Vite dev server に接続するため、ホットリロードが使えます。
-
-```sh
-# 1. GUI の依存関係をインストール & Vite dev server を起動（localhost:5173）
-cd examples/gain_plugin/src-gui
-npm install
-npm run dev
-
-# 2. 別ターミナルでプラグインをデバッグビルド＆インストール
-./script/build_and_install.sh
-```
-
 ## 主要な依存クレート
 
 | クレート | 役割 |

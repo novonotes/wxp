@@ -4,97 +4,94 @@
 
 ## 前提条件
 
-- **Rust**（最新の stable）
-- **Node.js**（npm）
-- macOS / Windows / Linux のいずれか
+### CLAP のみをビルドする場合
 
-デバッグには VS Code + [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb) 拡張が必要です。
+- Rust（最新の stable）
+- Node.js（npm）
 
-## 1. リポジトリのセットアップ
+### VST3 / AU / Standalone もビルドする場合
 
-このガイドでは **wxp リポジトリ内に新しいプラグインを追加する**方法を説明します。
+clap-wrapper を用いて VST3 / AU / Standalone を生成するには、追加で以下が必要です。
+
+**macOS:**
+- Xcode または Xcode Command Line Tools
+- CMake（3.15 以上推奨）
+
+**Windows:**
+- Visual Studio 2022（C++ ビルドツール付き）
+- CMake（3.15 以上推奨）
+
+**Linux:**
+- 現在 CLAP のみのサポートです。
+
+### デバッグ
+
+VS Code のデバッグ設定を用意しています。
+利用するには [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb) の拡張が必要です。
+
+## 最初のプラグインを作成する
+
+### 1. リポジトリのセットアップ
+
+このガイドでは wxp リポジトリ内に新しいプラグインを追加する方法を説明します。
 まず wxp リポジトリ本体をクローンしてください。
 
 ```sh
 git clone https://github.com/novonotes/wxp.git
-cd wxp
-git submodule update --init --recursive
 ```
 
-## 2. gain_plugin をテンプレートとして新規プロジェクトを作成
+### 2. テンプレートをコピー
 
-`examples/gain_plugin` をそのままコピーして、必要な箇所を書き換えます。
+`examples/gain_plugin` をそのままコピーします。
 
 ```sh
-cp -r examples/gain_plugin examples/my_plugin
+cp -r examples/gain_plugin /path/to/my_plugin
 ```
 
-## 3. 書き換えが必要な箇所
+### 3. テンプレート識別子を一括置換
 
-### src-plugin/Cargo.toml
+テンプレートには複数種類の識別子が散在しています。
+IDE の機能や `rg`、LLM エージェントなどで全ファイルを検索、まとめて置換してください。
 
-```toml
-[package]
-name = "my_plugin"          # ← プロジェクト名に変更
-```
+**置換テーブル:**
 
-### src-plugin/src/plugin.rs
+| 種別 | テンプレート値 | 置換先の例 |
+|------|---------------|-----------|
+| Rust crate 名 | `wxp_example_gain_plugin` | `my_plugin` |
+| プラグイン表示名 | `WXP Example Gain` | `My Plugin` |
+| プラグイン ID（逆ドメイン推奨） | `com.novo-notes.wxp-example-gain` | `com.your-company.my-plugin` |
+| GUI / スクリプト内などの kebab-case 名 | `wxp-example-gain-plugin` | `my-plugin` |
 
-プラグイン ID とプラグイン名を変更します。
+> **重要:** プラグイン ID はグローバルに一意である必要があります。一度公開したら変更できません。
 
-```rust
-pub(crate) const PLUGIN_ID: &str = "com.your-company.my-plugin";  // ← 逆ドメイン形式で一意に
-pub(crate) const PLUGIN_NAME: &str = "My Plugin";                   // ← ホストに表示される名前
-```
+**手順:**
 
-> **重要:** `PLUGIN_ID` はプラグインのライフサイクル全体を通じてグローバルに一意である必要があります。一度公開したら変更できません。
+対象ファイルと残件数を確認します。
 
-### src-plugin/src/gui.rs
-
-WebView のデータ保存先（localStorage キャッシュ等）を新しいプラグイン名に変更します。
-
-```rust
-let data_dir = std::env::temp_dir().join("my-plugin");  // ← プラグイン名に変更
-```
-
-### src-gui/package.json
-
-```json
-{
-  "name": "my-plugin-gui"   // ← プロジェクト名に変更
-}
-```
-
-### src-gui/index.html
-
-`<title>` タグや UI ラベルをプラグイン名に変更します。
-
-## 4. ワークスペースへの追加
-
-ルートの `Cargo.toml` に新しいクレートを追加します。
-
-```toml
-[workspace]
-members = [
-    # ...既存のエントリ...
-    "examples/my_plugin/src-plugin",
-]
-```
-
-## 5. ビルド確認
+rg を用いる例:
 
 ```sh
-cargo check --workspace --all-targets
+rg "wxp_example_gain_plugin|WXP Example Gain|com\.novo-notes\.wxp-example-gain|wxp-example-gain-plugin" \
+    --glob '!node_modules' --glob '!dist' --glob '!*.lock' --glob '!*.zip'
 ```
 
-## 6. ビルド & インストール
+確認できたら、上の置換テーブルの通りに**全件置換**してください。
+置換後に同じコマンドを再実行し、出力がゼロ件になれば完了です。
+
+### 4. コンパイル確認
+
+```sh
+cargo check --all-targets
+```
+
+### 5. ビルド & インストール
 
 ```sh
 cd examples/my_plugin
 ./script/build_and_install.sh
 ```
 
-インストール先は OS によって異なります:
+これによって、以下のディレクトリにビルド済みプラグインがインストールされます:
 
 | OS | インストール先 |
 |----|--------------|
@@ -102,38 +99,31 @@ cd examples/my_plugin
 | Windows | `%LOCALAPPDATA%/Programs/Common/CLAP/` |
 | Linux | `~/.clap/` |
 
-macOS では VST3 / AU も同時にインストールされます。
+VST3 / AU も同時にインストールされます。
 
-## 7. デバッグ
+### 6. 動作確認
 
-### VS Code でスタンドアローンアプリとしてデバッグ
+デバッグビルドでは Vite dev server（`localhost:5173`）から GUI リソースを取得します。
+以下のように起動してください。
 
-DAW を使わずにプラグインを単体アプリとして起動し、デバッガーをアタッチできます。
+```sh
+cd /path/to/my_plugin/src-gui
+npm install
+npm run dev
+```
+
+DAW を起動して、プラグインをインサートしてみましょう。
+DAW によってはプラグイン再スキャン等が必要な場合があります。
+GUI はホットリロード可能です。HTML ファイルを編集してみましょう。
+
+### 7. デバッグ
+
+DAW はデバッガーのアタッチが難しいケースがあるので、まずはスタンドアローンアプリとしてデバッグすることをお勧めします。
+VS Code で「Debug gain_plugin standalone」構成を選択して実行します。
 
 > **注意:** スタンドアローンモードでは音声フィードバックがあります。**ヘッドフォンを使用してください。**
 
-1. VS Code で「Debug gain_plugin standalone」構成を選択して実行します。
-   - プラグインのビルド → スタンドアローンアプリ起動 → デバッガーアタッチ が自動で行われます。
-   - `RUST_BACKTRACE=1` が設定されるためパニック時のスタックトレースも確認できます。
-
-### GUI のホットリロード
-
-デバッグビルドでは Vite dev server（`localhost:5173`）に接続するため、GUI をホットリロードしながら開発できます。
-
-```sh
-# 1. GUI の依存関係をインストール & Vite dev server を起動
-cd examples/my_plugin/src-gui
-npm install
-npm run dev
-
-# 2. 別ターミナルでプラグインをビルド & インストール
-cd examples/my_plugin
-./script/build_and_install.sh
-```
-
-プラグインをインストール後、DAW またはスタンドアローンアプリで開けば GUI が自動的に Vite dev server から読み込まれます。
-
 ## 次のステップ
 
-- [concepts.md](./concepts.md) — wxp の主要概念（WxpWebViewBuilder・WxpCommandHandler・Channel）
-- [examples/gain_plugin/README.md](../examples/gain_plugin/README.md) — スレッドモデル・通信フロー・パラメータ変更フローの詳細
+example の gain plugin の [README.md](../examples/gain_plugin/README.md) を読んでみましょう。
+スレッドモデル・通信フロー・パラメータ変更フローの詳細等を記載しています。

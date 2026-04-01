@@ -2,18 +2,17 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Debug example_gain_plugin in Reaper",
+			"name": "Debug gain_plugin standalone",
 			"type": "lldb",
 			"request": "launch",
-			"program": "/Applications/REAPER.app/Contents/MacOS/REAPER",
+			"program": "${workspaceFolder}/target/standalone/Debug/WXP Example Gain Standalone.app/Contents/MacOS/WXP Example Gain Standalone",
 			"osx": {
-				"program": "/Applications/REAPER.app/Contents/MacOS/REAPER"
-			},
-			"linux": {
-				"program": "~/opt/REAPER/reaper"
+				"request": "attach",
+				"program": "${workspaceFolder}/examples/clap_wrapper_builder/build_libwxp_example_gain_plugin_static/Debug/WXP Example Gain Standalone.app/Contents/MacOS/WXP Example Gain Standalone",
+				"preLaunchTask": "build-and-open-example-gain-standalone"
 			},
 			"windows": {
-				"program": "C:/Program Files/REAPER (x64)/reaper.exe"
+				"program": "${workspaceFolder}/target/standalone/Debug/WXP Example Gain Standalone.exe"
 			},
 			"args": [],
 			"cwd": "${workspaceFolder}",
@@ -21,7 +20,7 @@
 				"RUST_BACKTRACE": "1"
 			},
 			"terminal": "console",
-			"preLaunchTask": "build-and-install-example-gain-plugin"
+			"preLaunchTask": "build-example-gain-standalone"
 		}
 	]
 }

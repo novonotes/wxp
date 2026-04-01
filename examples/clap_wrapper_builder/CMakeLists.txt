@@ -14,6 +14,12 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # キャッシュ変数として静的リンクライブラリのパスを受け取る
 set(CLAP_WRAPPER_BUILDER_TARGET_LIB "" CACHE FILEPATH "Path to the static library to wrap")
 option(CLAP_WRAPPER_BUILDER_BUILD_STANDALONE "Build standalone app target in clap_wrapper_builder" OFF)
+option(CLAP_WRAPPER_BUILDER_BUILD_VST3 "Build VST3 target in clap_wrapper_builder" ON)
+if(APPLE)
+    option(CLAP_WRAPPER_BUILDER_BUILD_AUV2 "Build AUv2 target in clap_wrapper_builder" ON)
+else()
+    option(CLAP_WRAPPER_BUILDER_BUILD_AUV2 "Build AUv2 target in clap_wrapper_builder" OFF)
+endif()
 set(CLAP_WRAPPER_BUILDER_STANDALONE_OUTPUT_NAME "" CACHE STRING "Output name for standalone app")
 set(CLAP_WRAPPER_BUILDER_STANDALONE_PLUGIN_ID "" CACHE STRING "Plugin ID used by standalone app")
 
@@ -30,6 +36,7 @@ endif()
 get_filename_component(PLUGIN_NAME ${CLAP_WRAPPER_BUILDER_TARGET_LIB} NAME_WE)
 string(REGEX REPLACE "^lib" "" PLUGIN_NAME ${PLUGIN_NAME})
 string(REGEX REPLACE "[^A-Za-z0-9_]" "_" PLUGIN_NAME_SAFE ${PLUGIN_NAME})
+string(REPLACE "_" "-" PLUGIN_NAME_BUNDLE ${PLUGIN_NAME_SAFE})
 
 message(STATUS "CLAP Wrapper Builder Configuration:")
 message(STATUS "  Target Library: ${CLAP_WRAPPER_BUILDER_TARGET_LIB}")
@@ -38,6 +45,10 @@ message(STATUS "  Safe Plugin Name: ${PLUGIN_NAME_SAFE}")
 
 # clap-wrapper サブプロジェクトを追加
 add_subdirectory(clap-wrapper)
+
+if(APPLE AND TARGET clap-wrapper-compile-options)
+  target_compile_options(clap-wrapper-compile-options INTERFACE -Wno-shorten-64-to-32)
+endif()
 
 # 静的ライブラリターゲットの作成
 # 外部の静的ライブラリをインポートライブラリとして設定
@@ -77,13 +88,16 @@ extern \"C\" {
 ")
 
 # ビルドするプラグインフォーマットを設定
-set(PLUGIN_FORMATS "CLAP" "VST3")
-if(APPLE)
+set(PLUGIN_FORMATS "CLAP")
+if(CLAP_WRAPPER_BUILDER_BUILD_VST3)
+    list(APPEND PLUGIN_FORMATS "VST3")
+endif()
+if(APPLE AND CLAP_WRAPPER_BUILDER_BUILD_AUV2)
     list(APPEND PLUGIN_FORMATS "AUV2")
 endif()
 
 # プラグインのバンドル情報
-set(BUNDLE_ID "org.wrapper.${PLUGIN_NAME_SAFE}")
+set(BUNDLE_ID "org.wrapper.${PLUGIN_NAME_BUNDLE}")
 set(BUNDLE_VERSION "1.0.0")
 
 # make_clapfirst_plugins を使用してマルチフォーマットプラグインを作成
@@ -118,6 +132,43 @@ if(CLAP_WRAPPER_BUILDER_BUILD_STANDALONE)
     )
 else()
     make_clapfirst_plugins(${CLAPFIRST_COMMON_ARGS})
+endif()
+
+if(APPLE)
+    set(CLAP_BUNDLE_ID "${BUNDLE_ID}.clap")
+    set(VST3_BUNDLE_ID "${BUNDLE_ID}.vst3")
+    set(AUV2_BUNDLE_ID "${BUNDLE_ID}.auv2")
+    set(STANDALONE_BUNDLE_ID "${BUNDLE_ID}.standalone")
+    set(STANDALONE_INFO_PLIST "${CMAKE_CURRENT_LIST_DIR}/StandaloneInfo.plist.in")
+
+    if(TARGET ${PLUGIN_NAME_SAFE}_clap)
+        set_target_properties(${PLUGIN_NAME_SAFE}_clap PROPERTIES
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${CLAP_BUNDLE_ID}"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${CLAP_BUNDLE_ID}"
+        )
+    endif()
+
+    if(TARGET ${PLUGIN_NAME_SAFE}_vst3)
+        set_target_properties(${PLUGIN_NAME_SAFE}_vst3 PROPERTIES
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${VST3_BUNDLE_ID}"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${VST3_BUNDLE_ID}"
+        )
+    endif()
+
+    if(TARGET ${PLUGIN_NAME_SAFE}_auv2)
+        set_target_properties(${PLUGIN_NAME_SAFE}_auv2 PROPERTIES
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${AUV2_BUNDLE_ID}"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${AUV2_BUNDLE_ID}"
+        )
+    endif()
+
+    if(TARGET ${PLUGIN_NAME_SAFE}_standalone)
+        set_target_properties(${PLUGIN_NAME_SAFE}_standalone PROPERTIES
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${STANDALONE_BUNDLE_ID}"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${STANDALONE_BUNDLE_ID}"
+            MACOSX_BUNDLE_INFO_PLIST "${STANDALONE_INFO_PLIST}"
+        )
+    endif()
 endif()
 
 if(MSVC AND TARGET ${PLUGIN_NAME_SAFE}_standalone)

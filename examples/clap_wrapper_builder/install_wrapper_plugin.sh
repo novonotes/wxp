@@ -96,12 +96,13 @@ CLAP_FILE_BASENAME=$(basename "$CLAP_FILE")
 CLAP_BASE_NAME="${CLAP_FILE_BASENAME%.clap}"
 CLAP_BASE_NAME="${CLAP_BASE_NAME// /_}"
 
-# OS判定とVST3ディレクトリの設定
+# OS判定とインストール先ディレクトリの設定
 case "$OSTYPE" in
     darwin*)
         # macOS
         OS="macos"
         VST3_INSTALL_DIR="$HOME/Library/Audio/Plug-Ins/VST3"
+        AU_INSTALL_DIR="$HOME/Library/Audio/Plug-Ins/Components"
         success "macOS を検出"
         ;;
     linux*)
@@ -135,6 +136,8 @@ fi
 # VST3プラグインの検索
 VST3_OUTPUT=""
 VST3_FILENAME="$OUTPUT_NAME.vst3"
+AU_OUTPUT=""
+AU_FILENAME="$OUTPUT_NAME.component"
 
 # マルチコンフィギュレーションジェネレータの場合
 if [ -d "$BUILD_DIR/$BUILD_CONFIG" ]; then
@@ -160,6 +163,23 @@ fi
 
 VST3_FULLPATH="$(cd "$(dirname "$VST3_OUTPUT")" && pwd)/$(basename "$VST3_OUTPUT")"
 success "VST3プラグインを検出: $VST3_FULLPATH"
+
+if [[ "$OS" == "macos" ]]; then
+    if [ -d "$BUILD_DIR/$BUILD_CONFIG" ]; then
+        AU_OUTPUT=$(find "$BUILD_DIR/$BUILD_CONFIG" -name "$AU_FILENAME" -type d | head -n 1 || true)
+    fi
+
+    if [ -z "$AU_OUTPUT" ]; then
+        AU_OUTPUT=$(find "$BUILD_DIR" -name "$AU_FILENAME" -type d | head -n 1 || true)
+    fi
+
+    if [ -n "$AU_OUTPUT" ]; then
+        AU_FULLPATH="$(cd "$(dirname "$AU_OUTPUT")" && pwd)/$(basename "$AU_OUTPUT")"
+        success "AUプラグインを検出: $AU_FULLPATH"
+    else
+        warning "AUプラグインが見つかりませんでした。VST3 のみインストールします。"
+    fi
+fi
 
 # CLAPプラグインの確認（警告のみ）
 CLAP_INSTALLED=false
@@ -219,6 +239,22 @@ success "インストールが完了しました！"
 echo ""
 echo "VST3プラグインは以下の場所にインストールされました:"
 echo "  $VST3_INSTALL_DIR/$VST3_FILENAME"
+
+if [[ "$OS" == "macos" && -n "${AU_OUTPUT:-}" ]]; then
+    echo "AUインストールディレクトリを準備しています..."
+    mkdir -p "$AU_INSTALL_DIR" || {
+        error "AUインストールディレクトリを作成できませんでした: $AU_INSTALL_DIR"
+    }
+
+    echo "AUプラグインをインストールしています..."
+    rm -rf "$AU_INSTALL_DIR/$AU_FILENAME"
+    cp -r "$AU_FULLPATH" "$AU_INSTALL_DIR/" || {
+        error "AUプラグインのコピーに失敗しました"
+    }
+
+    echo "AUプラグインは以下の場所にインストールされました:"
+    echo "  $AU_INSTALL_DIR/$AU_FILENAME"
+fi
 echo ""
 
 if [ "$CLAP_INSTALLED" = false ]; then

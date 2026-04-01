@@ -82,6 +82,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PLUGIN_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"       # examples/gain_plugin/
 REPO_ROOT="$( cd "$PLUGIN_ROOT/../.." && pwd )"     # wxp リポジトリルート
 GUI_DIR="$PLUGIN_ROOT/src-gui"
+WEBVIEW_BRIDGE_DIR="$REPO_ROOT/webview-bridge"
 
 # ---------------------------------------------------------------------------
 # ステップ 1: GUI フロントエンドのビルド
@@ -90,9 +91,17 @@ GUI_DIR="$PLUGIN_ROOT/src-gui"
 # リリースビルドでは build.rs がこの dist/ を ZIP 化してバイナリに埋め込む。
 # デバッグビルドでは Vite dev server を使うため、この出力は使われないが、
 # npm install は webview-bridge の依存解決に必要。
+echo "webview-bridge をビルドしています..."
+(
+    cd "$WEBVIEW_BRIDGE_DIR"
+    npm install
+    npm run build
+)
+
 echo "GUI をビルドしています..."
 (
     cd "$GUI_DIR"
+    rm -rf node_modules/@novonotes/webview-bridge
     npm install
     npm run build
 )
@@ -107,7 +116,12 @@ echo "GUI をビルドしています..."
 echo "プラグインをビルドしています..."
 (
     cd "$REPO_ROOT"
-    cargo build -p wxp_example_gain_plugin $CARGO_BUILD_FLAG
+    if [ "$OS" = "macos" ]; then
+        MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}" \
+        cargo build -p wxp_example_gain_plugin $CARGO_BUILD_FLAG
+    else
+        cargo build -p wxp_example_gain_plugin $CARGO_BUILD_FLAG
+    fi
 )
 
 # ---------------------------------------------------------------------------

@@ -73,6 +73,8 @@ OUTPUT_NAME="$2"
 BUILD_CONFIG="Debug"
 STANDALONE_PLUGIN_ID="${CLAP_WRAPPER_STANDALONE_PLUGIN_ID:-}"
 STANDALONE_OUTPUT_NAME="${CLAP_WRAPPER_STANDALONE_OUTPUT_NAME:-}"
+BUILD_VST3="${CLAP_WRAPPER_BUILDER_BUILD_VST3:-}"
+BUILD_AUV2="${CLAP_WRAPPER_BUILDER_BUILD_AUV2:-}"
 
 if [ $# -ge 3 ]; then
     case "$3" in
@@ -95,9 +97,23 @@ if [ $# -ge 4 ]; then
     STANDALONE_PLUGIN_ID="$4"
 fi
 
+if [ -z "$BUILD_VST3" ]; then
+    BUILD_VST3="ON"
+fi
+
+if [ -z "$BUILD_AUV2" ]; then
+    if [[ "$OSTYPE" == darwin* ]]; then
+        BUILD_AUV2="ON"
+    else
+        BUILD_AUV2="OFF"
+    fi
+fi
+
 echo "CLAPライブラリファイル: $CLAP_LIBRARY_FILE"
 echo "出力プラグイン名: $OUTPUT_NAME"
 echo "ビルド構成: $BUILD_CONFIG"
+echo "VST3ビルド: $BUILD_VST3"
+echo "AUビルド: $BUILD_AUV2"
 if [ -n "$STANDALONE_PLUGIN_ID" ]; then
     if [ -z "$STANDALONE_OUTPUT_NAME" ]; then
         STANDALONE_OUTPUT_NAME="${OUTPUT_NAME} Standalone"
@@ -113,6 +129,7 @@ fi
 # パス部分を除去してファイル名のみを取得
 CLAP_FILE_BASENAME=$(basename "$CLAP_LIBRARY_FILE")
 CLAP_BASE_NAME="${CLAP_FILE_BASENAME%.a}"
+CLAP_BASE_NAME="${CLAP_BASE_NAME%.lib}"
 CLAP_BASE_NAME="${CLAP_BASE_NAME// /_}_static"
 
 # clap-wrapper ディレクトリの確認
@@ -188,6 +205,14 @@ if [ -n "$STANDALONE_PLUGIN_ID" ]; then
     )
 fi
 
+CMAKE_FORMAT_ARGS=()
+if [ -n "${CLAP_WRAPPER_BUILDER_BUILD_VST3:-}" ]; then
+    CMAKE_FORMAT_ARGS+=(-DCLAP_WRAPPER_BUILDER_BUILD_VST3="${CLAP_WRAPPER_BUILDER_BUILD_VST3}")
+fi
+if [ -n "${CLAP_WRAPPER_BUILDER_BUILD_AUV2:-}" ]; then
+    CMAKE_FORMAT_ARGS+=(-DCLAP_WRAPPER_BUILDER_BUILD_AUV2="${CLAP_WRAPPER_BUILDER_BUILD_AUV2}")
+fi
+
 CMAKE_CONFIGURE_ARGS=(
     -S "."
     -B "$BUILD_DIR"
@@ -201,6 +226,9 @@ CMAKE_CONFIGURE_ARGS=(
     -DCLAP_WRAPPER_CXX_STANDARD=23
     -G "$CMAKE_GENERATOR"
 )
+if [ "${#CMAKE_FORMAT_ARGS[@]}" -gt 0 ]; then
+    CMAKE_CONFIGURE_ARGS+=("${CMAKE_FORMAT_ARGS[@]}")
+fi
 if [ "${#CMAKE_STANDALONE_ARGS[@]}" -gt 0 ]; then
     CMAKE_CONFIGURE_ARGS+=("${CMAKE_STANDALONE_ARGS[@]}")
 fi
@@ -215,7 +243,7 @@ echo "ビルド中..."
 # AudioUnitSDK のヘッダーが GNU statement expression を使用しており、
 # clap-wrapper の -Wpedantic -Werror と衝突するため、Xcode ビルド時に抑制する
 if [[ "$CMAKE_GENERATOR" == "Xcode" ]]; then
-    XCODE_FLAGS=('--' 'OTHER_CPLUSPLUSFLAGS=$(inherited) -Wno-gnu-statement-expression-from-macro-expansion')
+    XCODE_FLAGS=('--' 'OTHER_CPLUSPLUSFLAGS=$(inherited) -Wno-gnu-statement-expression-from-macro-expansion -Wno-shorten-64-to-32')
     XCODE_BUILD_ARGS=(--clean-first)
     # macOS かつ xcbeautify がある場合のみパイプを追加
     if command -v xcbeautify &> /dev/null; then
@@ -248,12 +276,14 @@ else
     fi
 fi
 
-if [ -n "$VST3_OUTPUT" ]; then
-    # フルパスを取得
-    VST3_FULLPATH="$(cd "$(dirname "$VST3_OUTPUT")" && pwd)/$(basename "$VST3_OUTPUT")"
-    success "VST3 プラグインが生成されました: $VST3_FULLPATH"
-else
-    error "VST3 プラグインが見つかりません"
+if [[ "$BUILD_VST3" != "OFF" ]]; then
+    if [ -n "$VST3_OUTPUT" ]; then
+        # フルパスを取得
+        VST3_FULLPATH="$(cd "$(dirname "$VST3_OUTPUT")" && pwd)/$(basename "$VST3_OUTPUT")"
+        success "VST3 プラグインが生成されました: $VST3_FULLPATH"
+    else
+        error "VST3 プラグインが見つかりません"
+    fi
 fi
 
 if [ -n "$STANDALONE_PLUGIN_ID" ]; then

@@ -192,7 +192,7 @@ echo "ビルド中..."
 # AudioUnitSDK のヘッダーが GNU statement expression を使用しており、
 # clap-wrapper の -Wpedantic -Werror と衝突するため、Xcode ビルド時に抑制する
 if [[ "$CMAKE_GENERATOR" == "Xcode" ]]; then
-    XCODE_FLAGS=('--' 'OTHER_CPLUSPLUSFLAGS=$(inherited) -Wno-gnu-statement-expression-from-macro-expansion')
+    XCODE_FLAGS=('--' 'OTHER_CPLUSPLUSFLAGS=$(inherited) -Wno-gnu-statement-expression-from-macro-expansion -Wno-shorten-64-to-32')
     XCODE_BUILD_ARGS=(--clean-first)
     # macOS かつ xcbeautify がある場合のみパイプを追加
     if command -v xcbeautify &> /dev/null; then

@@ -89,11 +89,18 @@ Channel コールバック        ◄──────    RunLoopSender → Cha
 
 ### ビルド & インストール
 
-`script/` 配下のスクリプトで GUI ビルド → cargo ビルド → .clap バンドル作成 → インストールまで一括で行えます。
+`script/` 配下のスクリプトで GUI ビルド → cargo ビルド → .clap バンドル作成に加え、
+macOS / Windows では VST3 / AU / standalone の補助ビルドも行えます。
 
 ```sh
 # デバッグビルド＆インストール（引数省略時は Debug ビルド）
 ./script/build_and_install.sh
+
+# CLAP のみビルド＆インストール
+CLAP_ONLY=1 ./script/build_and_install.sh
+
+# standalone のみビルド
+./script/build_standalone.sh
 ```
 
 インストール先は OS によって異なります:
@@ -103,6 +110,9 @@ Channel コールバック        ◄──────    RunLoopSender → Cha
 | macOS | `~/Library/Audio/Plug-Ins/CLAP/` |
 | Windows | `%LOCALAPPDATA%/Programs/Common/CLAP/` |
 | Linux | `~/.clap/` |
+
+macOS では `build_and_install.sh` 実行時に `~/Library/Audio/Plug-Ins/VST3/` と
+`~/Library/Audio/Plug-Ins/Components/` へのインストールも行います。
 
 ### GUI のデバッグ開発
 

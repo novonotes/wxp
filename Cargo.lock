@@ -113,6 +113,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+dependencies = [
+ "derive_arbitrary",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -178,6 +187,12 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "atomic_float"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "628d228f918ac3b82fe590352cc719d30664a0c13ca3a60266fe02c7132d480a"
 
 [[package]]
 name = "autocfg"
@@ -452,6 +467,16 @@ version = "0.1.0"
 source = "git+https://github.com/prokopyl/clack.git?rev=9f2ccb40#9f2ccb40b539ae3132ad4137fbd0b10dd0da0ea5"
 dependencies = [
  "bitflags 2.11.0",
+ "clack-common",
+ "clack-plugin",
+ "clap-sys",
+]
+
+[[package]]
+name = "clack-plugin"
+version = "0.1.0"
+source = "git+https://github.com/prokopyl/clack.git?rev=9f2ccb40#9f2ccb40b539ae3132ad4137fbd0b10dd0da0ea5"
+dependencies = [
  "clack-common",
  "clap-sys",
 ]
@@ -806,6 +831,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1021,6 +1057,7 @@ version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
+ "crc32fast",
  "miniz_oxide",
  "zlib-rs",
 ]
@@ -5111,7 +5148,7 @@ dependencies = [
  "uuid",
  "winit",
  "wry",
- "zip",
+ "zip 7.2.0",
 ]
 
 [[package]]
@@ -5120,6 +5157,24 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "clack-extensions",
  "wxp",
+]
+
+[[package]]
+name = "wxp_example_gain_plugin"
+version = "0.1.0"
+dependencies = [
+ "atomic_float",
+ "clack-extensions",
+ "clack-plugin",
+ "log",
+ "novonotes_run_loop",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "wry",
+ "wxp",
+ "wxp_clack",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -5280,6 +5335,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "displaydoc",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "thiserror 2.0.18",
+ "zopfli",
 ]
 
 [[package]]

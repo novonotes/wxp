@@ -4,10 +4,10 @@
 
 このリポジトリには以下を含みます。
 
-- `wxp`
-- `wxp_clack`
-- `host_window`
-- `@novonotes/webview-bridge`
+- `crates/wxp`
+- `crates/wxp_clack`
+- `crates/host_window`
+- `packages/webview-bridge`
 - `wry` fork（submodule）
 
 ## 方針
@@ -37,10 +37,10 @@ cargo check --workspace --all-targets
 
 ### JavaScript
 
-`webview-bridge` は単体 package として管理しています。
+`webview-bridge` は `packages/webview-bridge` で単体 package として管理しています。
 
 ```sh
-cd webview-bridge
+cd packages/webview-bridge
 npm install
 npm run build
 npm pack

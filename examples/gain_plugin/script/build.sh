@@ -82,7 +82,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PLUGIN_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"       # examples/gain_plugin/
 REPO_ROOT="$( cd "$PLUGIN_ROOT/../.." && pwd )"     # wxp リポジトリルート
 GUI_DIR="$PLUGIN_ROOT/src-gui"
-WEBVIEW_BRIDGE_DIR="$REPO_ROOT/webview-bridge"
+WEBVIEW_BRIDGE_DIR="$REPO_ROOT/packages/webview-bridge"
 
 # ---------------------------------------------------------------------------
 # ステップ 1: GUI フロントエンドのビルド

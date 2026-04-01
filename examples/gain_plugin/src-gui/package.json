@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@novonotes/webview-bridge": "file:../../../webview-bridge"
+    "@novonotes/webview-bridge": "file:../../../packages/webview-bridge"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

@@ -49,10 +49,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: webview-bridge/package-lock.json
+          cache-dependency-path: packages/webview-bridge/package-lock.json
       - name: Install dependencies
-        working-directory: webview-bridge
+        working-directory: packages/webview-bridge
         run: npm install
       - name: Build
-        working-directory: webview-bridge
+        working-directory: packages/webview-bridge
         run: npm run build

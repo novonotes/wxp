@@ -1,9 +1,9 @@
 # clap_wrapper_builder
 
-`wxp/examples/clap_wrapper_builder` は、`wxp` のサンプルや参照実装から
+`examples/clap_wrapper_builder` は、`wxp` のサンプルや参照実装から
 CLAP プラグインを VST3 / AUv2 / Standalone にラップするための補助ビルド環境です。
 
-これは正式な安定 API ではありません。`wxp/examples/gain_plugin` などの
+これは正式な安定 API ではありません。`examples/gain_plugin` などの
 サンプル実装を支えるための例示用コードとして扱い、破壊的変更が入る可能性があります。
 
 ## 含まれるもの

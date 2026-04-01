@@ -1,66 +1,40 @@
 # wxp
 
-`wxp` は WebView ベースのプラグイン UI 基盤です。
+`wxp` は WebView ベースのオーディオプラグイン UI 基盤です。
+HTML / CSS / TypeScript でプラグイン GUI を記述し、[wry](https://github.com/tauri-apps/wry) をベースにした WebView 上で動作させます。
+Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript の双方向通信を簡潔に記述できます。
 
-このリポジトリには以下を含みます。
+## Getting Started
 
-- `crates/wxp`
-- `crates/wxp_clack`
-- `crates/host_window`
-- `packages/webview-bridge`
-- `wry` fork（submodule）
+[Getting Started](docs/getting-started.md) に examples/gain_plugin をテンプレートとした新規プロジェクト作成手順を記載しています。
 
-## 方針
+## このリポジトリの構成
 
-- 現時点では alpha 前提です。
+| パス | 内容 |
+|-----|------|
+| `crates/wxp` | WebView UI 基盤（メインクレート） |
+| `crates/wxp_clack` | CLAP（clack）と wxp の統合ユーティリティ |
+| `crates/host_window` | wxp の dev-dependency。外部利用は想定されていません。 |
+| `packages/webview-bridge` | JS/TS 側 IPC ブリッジ（`@novonotes/webview-bridge`） |
+| `examples/gain_plugin` | wxp プラグイン開発の入門サンプル |
+
+## プロジェクトのステータス
+
+- 現時点のステータスは alpha です。
 - Rust クレートは `git` + `rev` 固定で利用してください。
-- `@novonotes/webview-bridge` は当面 npm publish せず、tarball 配布を前提にします。
-- API 安定後に `crates.io` / npm publish を検討します。
-- 初回の公開版は `v0.1.0-alpha.1` を想定しています。
+- `@novonotes/webview-bridge` は当面 npm publish せず、GitHub Releases で tarball 配布します。
 
-## セットアップ
-
-```sh
-git clone https://github.com/novonotes/wxp.git
-cd wxp
-git submodule update --init --recursive
+cargo の設定例:
+```toml
+[dependencies]
+wxp = { git = "https://github.com/novonotes/wxp.git", rev = "<main ブランチの最新コミットハッシュ>" }
+wxp_clack = { git = "https://github.com/novonotes/wxp.git", rev = "<main ブランチの最新コミットハッシュ>" }
 ```
 
-### Rust
-
-`run_loop` は将来的に別リポジトリを `git` + `rev` 固定で参照する前提です。
-現時点では GitHub Actions での公開 CI を通すため、このリポジトリ内に vendored copy を同梱しています。
-
-```sh
-cargo check --workspace --all-targets
-```
-
-### JavaScript
-
-`webview-bridge` は `packages/webview-bridge` で単体 package として管理しています。
-
-```sh
-cd packages/webview-bridge
-npm install
-npm run build
-npm pack
-```
-
-生成された tarball を利用側でインストールしてください。
-
-GitHub Releases に添付された tarball を使う場合は、例えば次のようにインストールします。
-
+npm のインストール方法:
 ```sh
 npm install https://github.com/novonotes/wxp/releases/download/v0.1.0-alpha.1/novonotes-webview-bridge-0.1.0-alpha.1.tgz
 ```
-
-## CI
-
-GitHub Actions で以下を実行します。
-
-- Rust: `cargo check --workspace --all-targets`
-- Rust: `cargo test --workspace --lib`
-- JavaScript: `npm run build`
 
 ## ライセンス
 

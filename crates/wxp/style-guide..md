@@ -1,2 +1,0 @@
-- プラグイン環境のためスレッドの spawn は使用禁止。
-- 非同期ランタイムは tokio ではなく、run_loop を使用。非同期コードは RunLoop::spawn や RunLoop::block_on を使用。

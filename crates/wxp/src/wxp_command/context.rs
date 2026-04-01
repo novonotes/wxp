@@ -3,7 +3,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// コマンドの引数のデシリアライズに必要な情報
-pub struct DeserializeContext<'a> {
+pub(crate) struct DeserializeContext<'a> {
     /// コマンド名
     pub(crate) name: &'a str,
     /// Deserialize する引数のキー
@@ -15,7 +15,7 @@ pub struct DeserializeContext<'a> {
 }
 
 /// コマンド引数の変換を行うためのトレイト
-pub trait TryFromDeserializeContext<'de>: Sized {
+pub(crate) trait TryFromDeserializeContext<'de>: Sized {
     /// DeserializeContext から Self への変換を試みる
     fn try_from(ctx: DeserializeContext<'de>) -> Result<Self, Value>;
 }

@@ -12,6 +12,24 @@ use wry::{WebViewBuilder, http::Response};
 use zip::ZipArchive;
 use zip::result::ZipError;
 
+/// WebView インスタンスを構築するためのビルダー。
+///
+/// [`WxpCommandHandler`] と組み合わせて JavaScript ↔ Rust の双方向通信を設定できます。
+/// Channel API（Rust → JS のプッシュ通知）は常に有効です。
+///
+/// # 基本的な使い方
+///
+/// ```no_run
+/// use wxp::{WxpWebViewBuilder, WxpCommandHandler, WebContext};
+/// use std::sync::Arc;
+///
+/// let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin")).build_wry_context();
+/// let handler = Arc::new(WxpCommandHandler::new());
+/// let webview = WxpWebViewBuilder::new(&mut web_context)
+///     .with_command_handler(handler)
+///     .with_url("http://localhost:5173/")
+///     .build_as_child(&window)?;
+/// ```
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,
     command_handler: Option<Arc<WxpCommandHandler>>,
@@ -35,6 +53,10 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// ディレクトリの内容をカスタムプロトコル経由で配信する。
+    ///
+    /// 主にローカルファイルシステム上のビルド済みアセットを配信するために使用します。
+    /// `protocol` に `"my-plugin"` を指定した場合、`my-plugin://localhost/` でアクセスできます。
     pub fn with_serve_dir(
         mut self,
         protocol: impl Into<String>,
@@ -99,6 +121,13 @@ impl<'a> WxpWebViewBuilder<'a> {
         Ok(self)
     }
 
+    /// ZIP バイト列の内容をカスタムプロトコル経由で配信する。
+    ///
+    /// リリースビルドでバイナリに埋め込んだ GUI アセットを配信するために使用します。
+    /// `protocol` に `"my-plugin"` を指定した場合、`my-plugin://localhost/` でアクセスできます。
+    ///
+    /// `zip_bytes` は `'static` である必要があります。`include_bytes!` や `build.rs` で生成した
+    /// バイト列を渡してください。
     pub fn with_serve_zip(
         mut self,
         protocol: impl Into<String>,
@@ -226,6 +255,11 @@ impl<'a> WxpWebViewBuilder<'a> {
         Ok(self)
     }
 
+    /// コマンドハンドラーを設定する。
+    ///
+    /// JavaScript から `invoke()` で呼び出せるコマンドを登録するために使います。
+    /// `WxpCommandHandler::register_sync` / `register_async` で事前にコマンドを登録しておき、
+    /// このメソッドでビルダーに渡してください。
     pub fn with_command_handler(mut self, handler: Arc<WxpCommandHandler>) -> Self {
         let builder = setup_invoke_handler_internal(self.builder, handler.clone());
         self.command_handler = Some(handler);
@@ -235,6 +269,11 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// WebView が読み込む URL を設定する。
+    ///
+    /// デバッグビルドでは Vite dev server（例: `http://localhost:5173/`）を指定します。
+    /// リリースビルドでは [`with_serve_zip`](Self::with_serve_zip) と組み合わせて
+    /// カスタムプロトコル URL（例: `my-plugin://localhost/`）を指定します。
     pub fn with_url(self, url: impl Into<String>) -> Self {
         Self {
             builder: self.builder.with_url(&url.into()),
@@ -242,6 +281,10 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// WebView に表示する HTML を直接設定する。
+    ///
+    /// URL を指定せずに HTML 文字列を直接渡す場合に使用します。
+    /// URL から読み込む場合は [`with_url`](Self::with_url) を使ってください。
     pub fn with_html(self, html: impl Into<String>) -> Self {
         Self {
             builder: self.builder.with_html(&html.into()),
@@ -249,6 +292,9 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// ブラウザの DevTools（開発者ツール）の有効/無効を設定する。
+    ///
+    /// デバッグビルドでは `true` にしておくと、右クリック →「検証」から DevTools を開けます。
     pub fn with_devtools(self, devtools: bool) -> Self {
         Self {
             builder: self.builder.with_devtools(devtools),
@@ -256,6 +302,10 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// WebView の初期表示状態を設定する。
+    ///
+    /// `false` を指定すると非表示状態で生成されます。後から表示する場合は
+    /// [`WebViewRef`] 経由で操作してください。
     pub fn with_visible(self, visible: bool) -> Self {
         Self {
             builder: self.builder.with_visible(visible),
@@ -263,6 +313,11 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
     }
 
+    /// WebView の初期サイズと位置を設定する。
+    ///
+    /// CLAP プラグインの場合、ホストから通知された GUI サイズを渡します。
+    /// [`wxp_clack::dpi::DpiConverter::create_webview_bounds`] で変換した値を使うと
+    /// DPI に対応した Rect を得られます。
     pub fn with_bounds(self, bounds: wry::Rect) -> Self {
         Self {
             builder: self.builder.with_bounds(bounds),

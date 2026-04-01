@@ -9,13 +9,18 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
-/// コマンドハンドラー - コマンドを管理・実行
+/// JavaScript からの `invoke()` 呼び出しを受け付けるコマンドを管理・実行するハンドラー。
+///
+/// [`register_sync`](Self::register_sync) / [`register_async`](Self::register_async) で
+/// コマンドを登録し、[`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler)
+/// でビルダーに渡してください。
 pub struct WxpCommandHandler {
     commands: Arc<RwLock<HashMap<String, DynUnifiedCommand>>>,
     webview: Arc<RwLock<Option<WebViewRef>>>,
 }
 
 impl WxpCommandHandler {
+    /// 新しい `WxpCommandHandler` を作成する。
     pub fn new() -> Self {
         Self {
             commands: Arc::new(RwLock::new(HashMap::new())),

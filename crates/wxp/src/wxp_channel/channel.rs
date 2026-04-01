@@ -25,6 +25,14 @@ pub(crate) enum ChannelResponseBody {
     Raw(Vec<u8>),
 }
 
+/// Rust から JavaScript へデータを送信するチャネル。
+///
+/// JavaScript 側で `new Channel(callback)` を生成し、`invoke()` の引数として Rust に渡します。
+/// Rust 側は受け取った `Channel` に対して [`send`](Self::send) / [`send_bytes`](Self::send_bytes)
+/// を呼ぶことでコールバックにデータを届けます。
+///
+/// `Channel` がドロップされると JS 側のコールバックにチャネル終了が通知されます。
+/// 明示的に終了させたい場合は [`close`](Self::close) を使ってください。
 #[derive(Debug, Clone)]
 pub struct Channel {
     id: u32,
@@ -66,6 +74,9 @@ impl Channel {
         self.id
     }
 
+    /// JSON シリアライズ可能なデータを JavaScript のコールバックに送信する。
+    ///
+    /// JS 側では `Channel` のコールバック引数としてデシリアライズされたオブジェクトが渡されます。
     pub fn send<T: Serialize>(&self, data: T) -> Result<()> {
         let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
@@ -90,6 +101,9 @@ impl Channel {
         }
     }
 
+    /// バイナリデータを `ArrayBuffer` として JavaScript のコールバックに送信する。
+    ///
+    /// JS 側では `message instanceof ArrayBuffer` で判別できます。
     pub fn send_bytes(&self, data: Vec<u8>) -> Result<()> {
         let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
@@ -127,6 +141,11 @@ impl Channel {
         Ok(())
     }
 
+    /// チャネルを明示的に閉じる。
+    ///
+    /// JS 側のコールバックに終了通知を送ってからチャネルを消費します。
+    /// `Channel` がドロップされる際にも自動的に終了通知が送られるため、
+    /// 明示的に終了タイミングを制御する場合にのみ使用してください。
     pub fn close(self) -> Result<()> {
         self.send_end_message()
     }

@@ -29,6 +29,10 @@ pub struct DpiConverter {
 }
 
 impl DpiConverter {
+    /// スケールファクターから `DpiConverter` を作成する。
+    ///
+    /// プラットフォームに応じて論理ピクセルモード／物理ピクセルモードを自動選択します。
+    /// macOS・Windows は論理ピクセル、Linux（X11）は物理ピクセルになります。
     pub fn new(scale_factor: f64) -> Self {
         let uses_logical = GuiApiType::default_for_current_platform()
             .map(|api| api.uses_logical_size())
@@ -50,6 +54,7 @@ impl DpiConverter {
         self.scale_factor
     }
 
+    /// CLAP の `GuiSize` を論理ピクセル単位の `LogicalSize` に変換する。
     pub fn to_logical(&self, size: GuiSize) -> LogicalSize<f64> {
         if self.uses_logical {
             LogicalSize {
@@ -64,6 +69,7 @@ impl DpiConverter {
         }
     }
 
+    /// 論理ピクセル単位の `LogicalSize` を CLAP の `GuiSize` に変換する。
     pub fn to_gui(&self, size: LogicalSize<f64>) -> GuiSize {
         if self.uses_logical {
             GuiSize {
@@ -78,6 +84,11 @@ impl DpiConverter {
         }
     }
 
+    /// WebView の配置に使う `Rect` を作成する。
+    ///
+    /// origin は `(0, 0)` 固定で、size のみをプラットフォームに応じて
+    /// 論理／物理ピクセルに変換します。
+    /// [`WxpWebViewBuilder::with_bounds`](wxp::WxpWebViewBuilder::with_bounds) に渡してください。
     pub fn create_webview_bounds(&self, size: LogicalSize<f64>) -> wxp::Rect {
         use wxp::dpi::{LogicalPosition, Size};
 

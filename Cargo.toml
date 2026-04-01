@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["examples/gain_plugin/src-plugin", "host_window", "wxp", "wxp_clack"]
+members = [
+    "crates/host_window",
+    "crates/wxp",
+    "crates/wxp_clack",
+    "examples/gain_plugin/src-plugin",
+]
 
 [workspace.lints.rust]
 unreachable_pub = "deny"

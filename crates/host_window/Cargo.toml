@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 description = "Host window utilities for plugin environments."
 repository = "https://github.com/novonotes/wxp"
-readme = "../README.md"
+readme = "../../README.md"
 
 [dependencies]
 raw-window-handle = "0.6"
@@ -40,7 +40,7 @@ winapi = { version = "0.3", features = [
 x11 = { version = "2.21", features = ["xlib"] }
 
 [dev-dependencies]
-novonotes_run_loop = { path = "../vendor/run_loop" }
+novonotes_run_loop = { path = "../../vendor/run_loop" }
 ctrlc = "3.4"
 log = "0.4"
 

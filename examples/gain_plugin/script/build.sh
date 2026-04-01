@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh - example_gain_plugin の CLAP ビルド
+# build.sh - gain_plugin の CLAP ビルド
 #
 # このスクリプトは以下の 3 ステップを実行します:
 #   1. GUI フロントエンド（src-gui）の npm ビルド
@@ -79,8 +79,8 @@ fi
 # ---------------------------------------------------------------------------
 # BASH_SOURCE[0] からスクリプト自身の絶対パスを求め、そこから相対的に各ディレクトリを特定する。
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PLUGIN_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"       # example_gain_plugin/
-REPO_ROOT="$( cd "$PLUGIN_ROOT/.." && pwd )"         # wxp リポジトリルート
+PLUGIN_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"       # examples/gain_plugin/
+REPO_ROOT="$( cd "$PLUGIN_ROOT/../.." && pwd )"     # wxp リポジトリルート
 GUI_DIR="$PLUGIN_ROOT/src-gui"
 
 # ---------------------------------------------------------------------------

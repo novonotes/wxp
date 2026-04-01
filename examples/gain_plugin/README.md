@@ -7,7 +7,7 @@ wxp プラグイン開発に必要な要素が一通り含まれています。
 ## ディレクトリ構成
 
 ```
-example_gain_plugin/
+examples/gain_plugin/
 ├── script/                # ビルド・インストール用スクリプト
 ├── src-plugin/            # Rust（プラグイン本体）
 └── src-gui/               # TypeScript + HTML/CSS（GUI フロントエンド）
@@ -110,7 +110,7 @@ Channel コールバック        ◄──────    RunLoopSender → Cha
 
 ```sh
 # 1. GUI の依存関係をインストール & Vite dev server を起動（localhost:5173）
-cd example_gain_plugin/src-gui
+cd examples/gain_plugin/src-gui
 npm install
 npm run dev
 

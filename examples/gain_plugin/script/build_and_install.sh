@@ -1,5 +1,5 @@
 #!/bin/bash
-# build_and_install.sh - example_gain_plugin のビルド＆インストール（一括）
+# build_and_install.sh - gain_plugin のビルド＆インストール（一括）
 #
 # build.sh と install.sh をまとめて実行するショートカットスクリプト。
 # 通常の開発サイクルではこのスクリプトを使えばよい。
@@ -22,7 +22,7 @@ NC='\033[0m'  # No Color（色のリセット）
 # 第 1 引数を BUILD_CONFIG に設定。省略時は "Debug"。
 BUILD_CONFIG="${1:-Debug}"
 
-echo -e "${BLUE}example_gain_plugin (CLAP) をインストール中...${NC}"
+echo -e "${BLUE}gain_plugin (CLAP) をインストール中...${NC}"
 echo "ビルド構成: $BUILD_CONFIG"
 echo ""
 
@@ -34,6 +34,6 @@ echo "2. CLAPプラグインをインストールしています..."
 "$SCRIPT_DIR/install.sh"
 
 echo ""
-echo -e "${GREEN}example_gain_plugin のインストールが完了しました！${NC}"
+echo -e "${GREEN}gain_plugin のインストールが完了しました！${NC}"
 echo "インストールされたプラグイン:"
 echo "  - WXP Example Gain.clap (CLAP形式)"

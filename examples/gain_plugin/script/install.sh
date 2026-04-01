@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh - example_gain_plugin の CLAP インストール
+# install.sh - gain_plugin の CLAP インストール
 #
 # build.sh で作成した .clap バンドルを、OS ごとの CLAP プラグインディレクトリにコピーする。
 # DAW はこのディレクトリを自動スキャンしてプラグインを検出する。
@@ -43,7 +43,7 @@ echo "検出されたOS: $OS"
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PLUGIN_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
-REPO_ROOT="$( cd "$PLUGIN_ROOT/.." && pwd )"
+REPO_ROOT="$( cd "$PLUGIN_ROOT/../.." && pwd )"
 
 BUNDLE_NAME="WXP Example Gain.clap"
 BUNDLE_PATH="$REPO_ROOT/target/bundled/${BUNDLE_NAME}"

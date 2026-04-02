@@ -3,7 +3,7 @@
 このディレクトリには wxp クレート自体の動作確認・開発用のスタンドアローンアプリサンプルが含まれています。
 
 **プラグイン開発者はこれらのサンプルを参照する必要はありません。**
-プラグイン開発の出発点としては [`examples/gain_plugin`](../../../examples/gain_plugin/README.md) を参照してください。
+プラグイン開発の出発点としては [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md) を参照してください。
 
 ## サンプル一覧
 

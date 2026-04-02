@@ -4,7 +4,6 @@ members = [
     "crates/host_window",
     "crates/wxp",
     "crates/wxp_clack",
-    "examples/gain_plugin/src-plugin",
 ]
 
 [workspace.lints.rust]

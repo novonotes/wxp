@@ -6,7 +6,7 @@ Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript 
 
 ## Getting Started
 
-[Getting Started](docs/getting-started.md) に examples/gain_plugin をテンプレートとした新規プロジェクト作成手順を記載しています。
+[Getting Started](docs/getting-started.md) に `wxp-examples` を使った新規プロジェクト作成手順を記載しています。
 
 ## このリポジトリの構成
 
@@ -16,7 +16,7 @@ Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript 
 | `crates/wxp_clack` | CLAP（clack）と wxp の統合ユーティリティ |
 | `crates/host_window` | wxp の dev-dependency。外部利用は想定されていません。 |
 | `packages/webview-bridge` | JS/TS 側 IPC ブリッジ（`@novonotes/webview-bridge`） |
-| `examples/gain_plugin` | wxp プラグイン開発の入門サンプル |
+| `wxp-examples` | サンプル・参照実装は別リポジトリで管理 |
 
 ## プロジェクトのステータス
 

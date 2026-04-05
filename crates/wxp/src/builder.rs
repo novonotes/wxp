@@ -17,6 +17,19 @@ use zip::result::ZipError;
 /// [`WxpCommandHandler`] と組み合わせて JavaScript ↔ Rust の双方向通信を設定できます。
 /// Channel API（Rust → JS のプッシュ通知）は常に有効です。
 ///
+/// WebView の構築（[`build_as_child`](Self::build_as_child)）は **メインスレッド限定** です。
+///
+/// ## アセット配信の使い分け
+///
+/// | メソッド | 用途 |
+/// |---|---|
+/// | [`with_url`](Self::with_url) | 開発時に Vite dev server 等を直接参照 |
+/// | [`with_serve_dir`](Self::with_serve_dir) | ファイルシステム上のビルド済みアセットを配信 |
+/// | [`with_serve_zip`](Self::with_serve_zip) | `include_bytes!` で埋め込んだ ZIP を配信（リリース向け） |
+///
+/// リリースビルドでは `with_serve_zip("my-plugin", BYTES)` と
+/// `with_url("my-plugin://localhost/")` を組み合わせるのが典型的なパターンです。
+///
 /// # 基本的な使い方
 ///
 /// ```no_run
@@ -150,8 +163,8 @@ impl<'a> WxpWebViewBuilder<'a> {
         let protocol = protocol.into();
         self.builder = self
             .builder
-            // zipファイルのサイズが大きい場合、リクエスト毎の読み取り・展開に時間がかかる可能性がある
-            // 大きなファイルを使用するユースケースをサポートする場合はwith_asynchronous_custom_protocol等の使用を検討する
+            // ZIP ファイルが大きい場合、リクエストごとの読み取り・展開に時間がかかる可能性がある。
+            // 大きなファイルを扱う場合は with_asynchronous_custom_protocol 等の使用を検討すること
             .with_custom_protocol(protocol, move |_webview, request| {
                 // Handle OPTIONS request for CORS preflight (required for Windows)
                 if request.method() == "OPTIONS" {
@@ -188,7 +201,7 @@ impl<'a> WxpWebViewBuilder<'a> {
 
                 let file_path_cow = file_path.to_string_lossy();
                 let entry_indx = filepath_to_index.get(file_path_cow.as_ref()).or_else(|| {
-                    // windowsで作成されたzipファイルの中には、パス区切りがバックスラッシュになっているものがあるため、両方のパターンで検索する
+                    // Windows で作成された ZIP ファイルの中には、パス区切りがバックスラッシュになっているものがあるため、両方のパターンで検索する
                     let path_with_backslashes = file_path_cow.replace('/', "\\");
                     filepath_to_index.get(path_with_backslashes.as_str())
                 });
@@ -205,7 +218,7 @@ impl<'a> WxpWebViewBuilder<'a> {
                 match archive.by_index(*entry_index) {
                     Ok(mut zip_file) => {
                         let mut body: Vec<u8> = Vec::with_capacity(zip_file.size() as usize);
-                        // ここでzipファイル内の読み取りと展開が行われる
+                        // ZIP エントリの読み取りと展開
                         let Ok(_) = zip_file.read_to_end(&mut body) else {
                             return Response::builder()
                                 .status(500)

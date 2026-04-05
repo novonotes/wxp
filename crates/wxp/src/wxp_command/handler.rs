@@ -14,6 +14,12 @@ use std::sync::Arc;
 /// [`register_sync`](Self::register_sync) / [`register_async`](Self::register_async) で
 /// コマンドを登録し、[`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler)
 /// でビルダーに渡してください。
+///
+/// `Arc<WxpCommandHandler>` として複数箇所で共有できます。
+/// 内部で [`WebViewRef`](crate::WebViewRef) の強参照を保持するため、
+/// `WxpCommandHandler` が生きている間は WebView も維持されます。
+///
+/// コマンドクロージャは run loop スレッド上で実行されます。
 pub struct WxpCommandHandler {
     commands: Arc<RwLock<HashMap<String, DynUnifiedCommand>>>,
     webview: Arc<RwLock<Option<WebViewRef>>>,

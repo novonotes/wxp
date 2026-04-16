@@ -3,15 +3,17 @@ use std::cell::RefCell;
 use std::sync::{Arc, Weak};
 use wry::WebView;
 
-/// WebView への参照を管理する構造体
+/// Struct for managing a reference to a WebView
 ///
-/// [`WebViewRef`] は Send + Sync だが、 MainThread からしかアクセスしてはいけない。
-/// Send + Sync にする理由は、オーディオプラグインのインスタンスのような一時的にオーディオスレッドに移動される構造体でもメンバ変数に保持できるようにするため。
+/// [`WebViewRef`] is Send + Sync, but must only be accessed from the MainThread.
+/// The reason for making it Send + Sync is to allow it to be held as a member
+/// variable in structs that are temporarily moved to an audio thread,
+/// such as audio plugin instances.
 ///
-/// 生存期間の管理:
-/// [`WebViewRef`] は全てのインスタンスがドロップされると WebView も破棄され、
-/// ウィンドウ内のコンテンツが表示されなくなります。
-/// WebView を表示し続けるには、[`WebViewRef`] を最低一つどこかで保持し続ける必要があります。
+/// Lifetime management:
+/// When all [`WebViewRef`] instances are dropped, the WebView is also destroyed
+/// and the content in the window will no longer be displayed.
+/// To keep the WebView visible, at least one [`WebViewRef`] must be held somewhere.
 ///
 #[derive(Clone)]
 pub struct WebViewRef {
@@ -25,24 +27,24 @@ impl std::fmt::Debug for WebViewRef {
 }
 
 impl WebViewRef {
-    /// 新しい WebViewRef を作成
+    /// Creates a new WebViewRef
     pub(crate) fn new(webview: WebView) -> Self {
         Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
         }
     }
 
-    /// JavaScript を評価
+    /// Evaluates JavaScript
     pub fn evaluate_script(&self, script: &str) -> Result<(), wry::Error> {
         self.inner.borrow().evaluate_script(script)
     }
 
-    /// WebView の境界を設定
+    /// Sets the bounds of the WebView
     pub fn set_bounds(&self, bounds: wry::Rect) -> Result<(), wry::Error> {
         self.inner.borrow().set_bounds(bounds)
     }
 
-    /// 弱参照を取得（内部使用）
+    /// Returns a weak reference (for internal use)
     pub(crate) fn downgrade(&self) -> Weak<SendWrapper<RefCell<WebView>>> {
         Arc::downgrade(&self.inner)
     }

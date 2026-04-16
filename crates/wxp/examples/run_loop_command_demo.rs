@@ -1,4 +1,4 @@
-// greetコマンドのデモ - run_loop版（CommandContext使用）
+// greet command demo - run_loop version (using CommandContext)
 
 use host_window::{HostWindowHandle, create_window};
 use novonotes_run_loop::RunLoop;
@@ -40,22 +40,22 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-// リソースを保持するための構造体
+// Struct to hold resources
 struct Resources {
     _window: HostWindowHandle,
     _webview: wxp::WebViewRef,
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    // RunLoopを初期化
+    // Initialize RunLoop
     RunLoop::init().unwrap();
 
-    // コマンドハンドラーを作成
+    // Create a command handler
     let handler = Arc::new(WxpCommandHandler::new());
 
-    // 簡略化されたコマンド登録
+    // Register commands
     handler.register_async("greet", |ctx| {
-        // 型安全に引数取得（デフォルト値付き）
+        // Retrieve argument with type safety (with a default value)
         let name = ctx
             .arg::<String>("name")
             .unwrap_or_else(|_| "World".to_string());
@@ -67,13 +67,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // リソースを保持する変数
+    // Variable to hold resources
     let resources = Arc::new(parking_lot::Mutex::new(None));
     let resources_for_schedule = resources.clone();
 
-    // WebView作成をスケジュール
+    // Schedule WebView creation
     let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
-        // ウィンドウ作成
+        // Create window
         let window_width = 600.0;
         let window_height = 400.0;
         let window = create_window(
@@ -82,11 +82,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             window_height,
         );
 
-        // WebView作成
+        // Create WebView
         let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
         let mut wry_context = wxp_context.build_wry_context();
 
-        // 親ウィンドウと同じサイズを設定
+        // Set bounds to match the parent window size
         let bounds = Rect {
             position: LogicalPosition::new(0.0, 0.0).into(),
             size: LogicalSize::new(window_width, window_height).into(),
@@ -100,10 +100,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .build_as_child(&window)
             .unwrap();
 
-        // ウィンドウ表示
+        // Show the window
         window.show();
 
-        // リソースを保存
+        // Save resources
         *resources_for_schedule.lock() = Some(Resources {
             _window: window,
             _webview: webview,
@@ -111,10 +111,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
     handle.detach();
 
-    // アプリ実行
+    // Run the app
     RunLoop::current().run_app();
 
-    // リソースは自動的にDropされる
+    // Resources are automatically dropped
     RunLoop::deinit();
 
     Ok(())

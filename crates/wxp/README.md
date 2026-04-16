@@ -1,17 +1,17 @@
 # wxp
 
-wxp （WebView X Plugin）は、オーディオプラグイン開発向けの WebView 統合クレートです。  
-wry をベースに、Tauri に似た IPC の機能を提供し、プラグイン UI の構築を簡素化します。
+wxp (WebView X Plugin) is a WebView integration crate for audio plugin development.
+Built on wry, it provides Tauri-like IPC features and simplifies building plugin UIs.
 
-## 主な機能
+## Key Features
 
-- **WxpWebViewBuilder**: WebView の構築・設定
-- **Command API**: JS から Rust へのリクエスト/レスポンス形式の型安全な通信
-- **Channel API**: Rust から JavaScript への通知・ストリーミング
+- **WxpWebViewBuilder**: Build and configure a WebView
+- **Command API**: Type-safe request/response communication from JS to Rust
+- **Channel API**: Push notifications and streaming from Rust to JavaScript
 
 ## WxpWebViewBuilder
 
-WebView の構築と管理を簡素化します。
+Simplifies WebView construction and management.
 
 ```rust
 use wxp::WxpWebViewBuilder;
@@ -24,21 +24,21 @@ let webview = WxpWebViewBuilder::new()
 ```
 ## Command
 
-Tauri の `invoke` や `command` に似た API。コマンドベースの双方向通信を提供します。
+An API similar to Tauri's `invoke` and `command`. Provides command-based bidirectional communication.
 
-### 非同期コマンド
+### Async Commands
 
-#### JavaScript 側
+#### JavaScript side
 
 ```javascript
 import { invoke } from "@novonotes/webview-bridge";
 
-// 非同期コマンドの呼び出し
+// Call an async command
 const result = await invoke("fetch_device_list", { filter: { type: "audio" } });
 console.log(result.devices);
 ```
 
-#### Rust 側
+#### Rust side
 
 ```rust
 #[derive(Serialize, Deserialize)]
@@ -46,14 +46,14 @@ struct Filter {
     type: String,
 }
 
-// 非同期コマンド - async/await が使える
-// 同期的なコマンドを登録する場合は register_sync を使用してください。
+// Async command — supports async/await
+// Use register_sync to register a synchronous command.
 handler.register_async("fetch_device_list", |ctx| {
-    // Filter 以外にも Deserialize 可能な任意の型で引数を取得できます。
+    // Arguments can be any Deserializable type, not just Filter.
     let filter = ctx.arg::<Filter>("filter").unwrap();
 
     async move {
-        // 非同期処理を実行
+        // Execute async processing
         let devices = fetch_devices(&filter).await?;
         Ok(json!({ "devices": devices }))
     }
@@ -62,55 +62,55 @@ handler.register_async("fetch_device_list", |ctx| {
 
 ## Channel
 
-Tauri の Channel API に似た API。Rust から WebView へのリアルタイムデータストリーミングを可能にします。
+An API similar to Tauri's Channel API. Enables real-time data streaming from Rust to the WebView.
 
-### 基本的な使い方
+### Basic Usage
 
-#### JavaScript 側
+#### JavaScript side
 
 ```javascript
 import { invoke, Channel } from "@novonotes/webview-bridge";
 
-// チャンネルを作成してメッセージを受信
+// Create a channel and receive messages
 const ch = new Channel((message) => {
   console.log("Received event:", message);
 });
 
-// チャンネルを登録
+// Register the channel
 await invoke("subscribe_events", { channel: ch });
 ```
 
-#### Rust 側
+#### Rust side
 
 ```rust
 handler.register_sync("subscribe_events", |ctx| {
-    // 引数で渡されたチャンネルを取得
+    // Retrieve the channel passed as an argument
     let channel = ctx.arg::<Channel>("channel").unwrap();
 
-    // JSONメッセージを送信
+    // Send a JSON message
     channel.send(json!({ "type": "connected" }))?;
 
-    // バイナリデータを送信
-    let binary_data: Vec<u8> = vec![0xFF, 0xD8, 0xFF]; // 例: JPEGヘッダー
+    // Send binary data
+    let binary_data: Vec<u8> = vec![0xFF, 0xD8, 0xFF]; // e.g. JPEG header
     channel.send_bytes(binary_data)?;
 
     Ok(json!({ "status": "subscribed" }))
 });
 ```
 
-#### JavaScript 側でバイナリを受信
+#### Receiving binary data on the JavaScript side
 
 ```javascript
 const channel = new Channel((message) => {
   if (message instanceof ArrayBuffer) {
-    // バイナリデータとして処理
+    // Handle as binary data
     const bytes = new Uint8Array(message);
     console.log("Received binary:", bytes);
   } else {
-    // JSONデータとして処理
+    // Handle as JSON data
     console.log("Received JSON:", message);
   }
 });
 ```
 
-この実装は Tauri と同じパターンで、`instanceof ArrayBuffer` でバイナリデータを判別します。
+This implementation follows the same pattern as Tauri — use `instanceof ArrayBuffer` to distinguish binary data.

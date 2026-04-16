@@ -4,10 +4,10 @@ use objc2_foundation::{CGPoint, CGRect, CGSize, MainThreadMarker, NSString};
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 use std::ptr::NonNull;
 
-/// host_window のウィンドウハンドル
+/// Window handle for host_window
 ///
-/// このハンドルは `Send` と `Sync` を実装しており、
-/// スレッド間で安全に共有できます。
+/// This handle implements `Send` and `Sync`,
+/// and can be safely shared across threads.
 #[derive(Clone)]
 pub struct HostWindowHandle {
     ns_window: Id<NSWindow>,
@@ -17,38 +17,38 @@ unsafe impl Send for HostWindowHandle {}
 unsafe impl Sync for HostWindowHandle {}
 
 impl HostWindowHandle {
-    /// 生のNSWindowポインタを取得
+    /// Returns the raw NSWindow pointer
     pub fn as_raw(&self) -> *mut NSWindow {
         Id::as_ptr(&self.ns_window) as *mut NSWindow
     }
 
-    /// ウィンドウを表示
+    /// Shows the window
     pub fn show(&self) {
         self.ns_window.makeKeyAndOrderFront(None);
         unsafe {
-            // ウィンドウを再度最前面に
+            // Bring the window to the front again
             self.ns_window.orderFrontRegardless();
         }
     }
 
-    /// ウィンドウを非表示
+    /// Hides the window
     pub fn hide(&self) {
         self.ns_window.orderOut(None);
     }
 
-    /// ウィンドウの可視性をチェック
+    /// Checks whether the window is visible
     pub fn is_visible(&self) -> bool {
         self.ns_window.isVisible()
     }
 
-    /// ウィンドウを破棄
+    /// Destroys the window
     pub fn destroy(self) {
-        // ウィンドウがまだ表示されているかチェック
+        // Check if the window is still visible
         if self.is_visible() {
-            // ウィンドウを閉じる
+            // Close the window
             self.ns_window.close();
         }
-        // Id<NSWindow>のdropで自動的にreleaseされる
+        // Id<NSWindow> is automatically released when dropped
     }
 }
 
@@ -60,7 +60,7 @@ impl HasWindowHandle for HostWindowHandle {
                 .ok_or(raw_window_handle::HandleError::Unavailable)?,
         );
 
-        // AppKitWindowHandle の ns_view にこの window の contentView を設定
+        // Set the contentView of this window on AppKitWindowHandle's ns_view
         let content_view = self.ns_window.contentView();
         if let Some(view) = content_view {
             let view_ptr = Id::as_ptr(&view) as *mut _;
@@ -73,13 +73,13 @@ impl HasWindowHandle for HostWindowHandle {
     }
 }
 
-/// プラグイン環境用のウィンドウを作成（NSApp初期化をスキップ）
+/// Creates a window for the plugin environment (skips NSApp initialization)
 pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     let ns_window = create_ns_window(title, width, height);
     HostWindowHandle { ns_window }
 }
 
-/// NSWindowの作成処理
+/// Creates an NSWindow
 fn create_ns_window(title: &str, width: f64, height: f64) -> Id<NSWindow> {
     unsafe {
         let mtm = MainThreadMarker::new().expect("Must be on main thread");
@@ -99,11 +99,11 @@ fn create_ns_window(title: &str, width: f64, height: f64) -> Id<NSWindow> {
             false,
         );
 
-        // ウィンドウタイトルの設定
+        // Set the window title
         let title_str = NSString::from_str(title);
         ns_window.setTitle(&title_str);
 
-        // ウィンドウを表示
+        // Show the window
         ns_window.center();
         ns_window.makeKeyAndOrderFront(None);
 

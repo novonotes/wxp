@@ -4,10 +4,10 @@ use std::os::raw::{c_char, c_int, c_ulong};
 use std::ptr;
 use x11::xlib::*;
 
-/// host_window のウィンドウハンドル
+/// Window handle for host_window
 ///
-/// このハンドルは `Send` と `Sync` を実装しており、
-/// スレッド間で安全に共有できます。
+/// This handle implements `Send` and `Sync`,
+/// and can be safely shared across threads.
 #[derive(Clone, Copy)]
 pub struct HostWindowHandle {
     display: *mut Display,
@@ -18,12 +18,12 @@ unsafe impl Send for HostWindowHandle {}
 unsafe impl Sync for HostWindowHandle {}
 
 impl HostWindowHandle {
-    /// 生のWindow IDを取得
+    /// Returns the raw Window ID
     pub fn as_raw(&self) -> Window {
         self.window
     }
 
-    /// ウィンドウを表示
+    /// Shows the window
     pub fn show(&self) {
         unsafe {
             XMapWindow(self.display, self.window);
@@ -31,7 +31,7 @@ impl HostWindowHandle {
         }
     }
 
-    /// ウィンドウを非表示
+    /// Hides the window
     pub fn hide(&self) {
         unsafe {
             XUnmapWindow(self.display, self.window);
@@ -39,7 +39,7 @@ impl HostWindowHandle {
         }
     }
 
-    /// ウィンドウの可視性をチェック
+    /// Checks whether the window is visible
     pub fn is_visible(&self) -> bool {
         unsafe {
             let mut attrs: XWindowAttributes = std::mem::zeroed();
@@ -51,7 +51,7 @@ impl HostWindowHandle {
         }
     }
 
-    /// ウィンドウを破棄
+    /// Destroys the window
     pub fn destroy(self) {
         unsafe {
             if !self.display.is_null() && self.window != 0 {
@@ -65,15 +65,15 @@ impl HostWindowHandle {
 impl HasWindowHandle for HostWindowHandle {
     fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
         let mut handle = XlibWindowHandle::new(self.window);
-        handle.visual_id = 0; // デフォルトビジュアルを使用
+        handle.visual_id = 0; // Use the default visual
         Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Xlib(handle)) })
     }
 }
 
-/// プラグイン環境用のウィンドウを作成
+/// Creates a window for the plugin environment
 pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     unsafe {
-        // ディスプレイを開く
+        // Open the display
         let display = XOpenDisplay(ptr::null());
         if display.is_null() {
             panic!("Failed to open X11 display");
@@ -84,7 +84,7 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
         let black_pixel = XBlackPixel(display, screen);
         let white_pixel = XWhitePixel(display, screen);
 
-        // ウィンドウを作成
+        // Create the window
         let window = XCreateSimpleWindow(
             display,
             root,
@@ -97,11 +97,11 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
             white_pixel,
         );
 
-        // ウィンドウタイトルを設定
+        // Set the window title
         let title_cstring = CString::new(title).unwrap();
         XStoreName(display, window, title_cstring.as_ptr() as *mut c_char);
 
-        // ウィンドウマネージャーのプロトコルを設定
+        // Set up window manager protocols
         let wm_protocols = XInternAtom(display, b"WM_PROTOCOLS\0".as_ptr() as *const c_char, False);
         let wm_delete_window = XInternAtom(
             display,
@@ -116,14 +116,14 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
             protocols.len() as c_int,
         );
 
-        // イベントマスクを設定
+        // Set the event mask
         XSelectInput(
             display,
             window,
             ExposureMask | KeyPressMask | StructureNotifyMask,
         );
 
-        // ウィンドウを表示
+        // Show the window
         XMapWindow(display, window);
         XFlush(display);
 
@@ -131,7 +131,7 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
     }
 }
 
-// 追加の定数定義
+// Additional constant definitions
 const ExposureMask: CLong = 1 << 15;
 const KeyPressMask: CLong = 1 << 0;
 const StructureNotifyMask: CLong = 1 << 17;

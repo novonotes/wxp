@@ -1,4 +1,4 @@
-// カスタムテストハーネス - シンプルなウィンドウ作成テストから開始
+// Custom test harness — starting with a simple window creation test
 use host_window::create_window;
 use log::error;
 use novonotes_run_loop::RunLoop;
@@ -7,10 +7,10 @@ use std::time::Duration;
 fn main() {
     println!("Running wxp GUI tests on main thread...");
 
-    // RunLoopを初期化
+    // Initialize RunLoop
     RunLoop::init().unwrap();
 
-    // テストを実行
+    // Run tests
     let mut failed = false;
 
     print!("Testing window creation... ");
@@ -23,7 +23,7 @@ fn main() {
         }
     }
 
-    // RunLoopをクリーンアップ
+    // Clean up RunLoop
     RunLoop::deinit();
 
     if failed {
@@ -35,22 +35,22 @@ fn main() {
 }
 
 fn test_simple_window() {
-    // シンプルなウィンドウを作成
+    // Create a simple window
     let window_handle = create_window("Test Window", 400.0, 300.0);
 
-    // ウィンドウを表示
+    // Show the window
     window_handle.show();
 
-    // 少し待つ
+    // Wait a moment
     let mut handle = RunLoop::current().schedule(Duration::from_secs(1), move || {
         println!("Window test completed");
         RunLoop::current().stop_app();
     });
     handle.detach();
 
-    // デスクトップ環境では run_app を使う
+    // In a desktop environment, use run_app
     RunLoop::current().run_app();
 
-    // ウィンドウを破棄
+    // Destroy the window
     window_handle.destroy();
 }

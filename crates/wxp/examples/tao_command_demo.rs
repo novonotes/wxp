@@ -1,4 +1,4 @@
-// greetコマンドのデモ - taoベース（CommandContext使用）
+// greet command demo - tao-based (using CommandContext)
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
@@ -56,12 +56,12 @@ fn main() -> wry::Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    // コマンドハンドラーを作成
+    // Create a command handler
     let handler = Arc::new(WxpCommandHandler::new());
 
-    // 簡略化されたコマンド登録
+    // Register commands
     handler.register_async("greet", |ctx| {
-        // 型安全に引数取得（デフォルト値付き）
+        // Retrieve argument with type safety (with a default value)
         let name = ctx
             .arg::<String>("name")
             .unwrap_or_else(|_| "World".to_string());
@@ -73,11 +73,11 @@ fn main() -> wry::Result<()> {
         }
     });
 
-    // WebViewを作成
+    // Create the WebView
     let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
     let mut wry_context = wxp_context.build_wry_context();
 
-    // 親ウィンドウと同じサイズを設定
+    // Set bounds to match the parent window size
     let bounds = Rect {
         position: LogicalPosition::new(0.0, 0.0).into(),
         size: WxpLogicalSize::new(window_width, window_height).into(),
@@ -91,16 +91,16 @@ fn main() -> wry::Result<()> {
         .build_as_child(&window)
         .unwrap();
 
-    // 定期的にJavaScriptキューを実行するためのタイマーを設定
+    // Set up a timer to periodically run the JavaScript queue
     use std::time::{Duration, Instant};
     let mut last_check = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll; // ポーリングモードに変更
+        *control_flow = ControlFlow::Poll; // Switch to polling mode
 
-        // 10msごとにJavaScriptキューをチェック
+        // Check the JavaScript queue every 10ms
         if last_check.elapsed() > Duration::from_millis(10) {
-            // 即座実行モードではキューの実行は不要
+            // In immediate-execution mode, running the queue is not needed
             last_check = Instant::now();
         }
 

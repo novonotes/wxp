@@ -1,19 +1,19 @@
-# wxp クレートの examples について
+# About the wxp crate examples
 
-このディレクトリには wxp クレート自体の動作確認・開発用のスタンドアローンアプリサンプルが含まれています。
+This directory contains standalone application samples for verifying the behavior of and developing the wxp crate itself.
 
-**プラグイン開発者はこれらのサンプルを参照する必要はありません。**
-プラグイン開発の出発点としては [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md) を参照してください。
+**Plugin developers do not need to refer to these samples.**
+As a starting point for plugin development, see [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md).
 
-## サンプル一覧
+## List of Examples
 
-| ファイル | 説明 |
+| File | Description |
 |---------|------|
-| `run_loop_command_demo.rs` | `novonotes_run_loop` バックエンドで Command API を使うデモ |
-| `run_loop_channel_demo.rs` | `novonotes_run_loop` バックエンドで Channel API を使うデモ |
-| `tao_command_demo.rs` | `tao` バックエンドで Command API を使うデモ |
-| `tao_channel_demo.rs` | `tao` バックエンドで Channel API を使うデモ |
-| `winit_command_demo.rs` | `winit` バックエンドで Command API を使うデモ |
-| `winit_channel_demo.rs` | `winit` バックエンドで Channel API を使うデモ |
+| `run_loop_command_demo.rs` | Demo using the Command API with the `novonotes_run_loop` backend |
+| `run_loop_channel_demo.rs` | Demo using the Channel API with the `novonotes_run_loop` backend |
+| `tao_command_demo.rs` | Demo using the Command API with the `tao` backend |
+| `tao_channel_demo.rs` | Demo using the Channel API with the `tao` backend |
+| `winit_command_demo.rs` | Demo using the Command API with the `winit` backend |
+| `winit_channel_demo.rs` | Demo using the Channel API with the `winit` backend |
 
-3 種類のウィンドウバックエンド（run_loop / tao / winit）それぞれで Command と Channel の基本動作を検証するためのものです。
+These examples verify the basic behavior of Command and Channel for each of the three window backends (run_loop / tao / winit).

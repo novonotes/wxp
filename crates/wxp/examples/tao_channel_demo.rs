@@ -1,4 +1,4 @@
-// チャンネルストリーミングデモ - taoベース（CommandContext使用）
+// Channel streaming demo - tao-based (using CommandContext)
 
 use log::info;
 use novonotes_run_loop::RunLoop;
@@ -29,9 +29,9 @@ const HTML: &str = r#"<!DOCTYPE html>
     <style>
         body { font-family: monospace; padding: 20px; }
         button { margin: 5px; }
-        #messages { 
-            border: 1px solid #ccc; 
-            padding: 10px; 
+        #messages {
+            border: 1px solid #ccc;
+            padding: 10px;
             margin-top: 10px;
             height: 400px;
             overflow-y: auto;
@@ -47,7 +47,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 
     <script>
         let currentChannel = null;
-        
+
         function addMessage(data) {
             const div = document.createElement('div');
             if (data.done) div.className = 'done';
@@ -55,24 +55,24 @@ const HTML: &str = r#"<!DOCTYPE html>
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
         }
-        
+
         async function startStreaming() {
             try {
                 startBtn.disabled = true;
-                
+
                 currentChannel = new Channel((message) => {
                     addMessage(message);
                     if (message.done) startBtn.disabled = false;
                 });
-                
+
                 addMessage({ info: `Channel: ${currentChannel.id}` });
-                
-                const response = await window.invoke('start_streaming', { 
-                    channel: currentChannel.toIPC() 
+
+                const response = await window.invoke('start_streaming', {
+                    channel: currentChannel.toIPC()
                 });
-                
+
                 addMessage({ info: `Response: ${JSON.stringify(response)}` });
-                
+
             } catch (error) {
                 addMessage({ error: error.message });
                 startBtn.disabled = false;
@@ -95,25 +95,25 @@ fn main() -> wry::Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    // コマンドハンドラーを作成
+    // Create a command handler
     let handler = Arc::new(WxpCommandHandler::new());
 
-    // 簡略化されたコマンド登録
+    // Register commands
     let proxy_clone = proxy.clone();
     handler.register_async("start_streaming", move |ctx| {
-        // コンテキストから必要な値を事前に取得
+        // Retrieve required values from context in advance
         let proxy = proxy_clone.clone();
-        // チャンネル作成
+        // Create the channel
         let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
 
-        // 非同期ブロック
+        // Async block
         async move {
-            // チャンネルIDを取得
+            // Get the channel ID
             let channel_id = channel.id();
 
             info!("Received channel ID: {}", channel_id);
 
-            // イベントループにストリーミング開始を通知
+            // Notify the event loop to start streaming
             let _ = proxy.send_event(UserEvent::StartStreaming(
                 channel_id.to_string(),
                 channel.clone(),
@@ -126,11 +126,11 @@ fn main() -> wry::Result<()> {
         }
     });
 
-    // WebViewを作成
+    // Create the WebView
     let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
     let mut wry_context = wxp_context.build_wry_context();
 
-    // 親ウィンドウと同じサイズを設定
+    // Set bounds to match the parent window size
     let bounds = Rect {
         position: LogicalPosition::new(0.0, 0.0).into(),
         size: WxpLogicalSize::new(window_width, window_height).into(),
@@ -159,7 +159,7 @@ fn main() -> wry::Result<()> {
                 match user_event {
                     UserEvent::StartStreaming(channel_id, channel) => {
                         info!("Event: Starting streaming to channel {}", channel_id);
-                        // 最初のメッセージを送信
+                        // Send the first message
                         let _ =
                             proxy.send_event(UserEvent::SendNextMessage(channel_id, channel, 0));
                     }
@@ -174,7 +174,7 @@ fn main() -> wry::Result<()> {
                             info!("Sending message #{}", index + 1);
 
                             if channel.send(message).is_ok() {
-                                // 500ms後に次のメッセージを送信
+                                // Send the next message after 500ms
                                 let proxy_clone = proxy.clone();
                                 let channel_id_clone = channel_id.clone();
                                 let channel_clone = channel.clone();
@@ -190,7 +190,7 @@ fn main() -> wry::Result<()> {
                                 info!("Failed to send message #{}", index + 1);
                             }
                         } else {
-                            // ストリーミング終了
+                            // Streaming finished
                             let _ = channel.send(json!({
                                 "done": true,
                                 "message": "Streaming completed!"

@@ -39,7 +39,7 @@ fn main() {
 fn test_channel_error() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -59,8 +59,8 @@ fn test_channel_error() -> std::result::Result<(), String> {
                     await window.invoke('bad_channel', {});
                     await window.invoke('report', { caught: false });
                 } catch (e) {
-                    await window.invoke('report', { 
-                        caught: e.message.includes('Channel parameter is required') 
+                    await window.invoke('report', {
+                        caught: e.message.includes('Channel parameter is required')
                     });
                 }
             });
@@ -80,7 +80,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
                 if let Ok(result) = ctx.arg::<bool>("caught") {
                     caught.store(result, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -101,7 +101,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -109,7 +109,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");
@@ -129,7 +129,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
 fn test_channel_json_small() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -146,7 +146,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
             let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
-                    // メッセージ受信を Promise でラップ
+                    // Wrap message reception in a Promise
                     const messageReceived = new Promise((resolve, reject) => {
                         const channel = new window.Channel((msg) => {
                             console.log('Message received:', msg);
@@ -154,21 +154,21 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
                                 resolve(true);
                             }
                         });
-                        
-                        // 送信を実行
+
+                        // Execute the send
                         window.invoke('send_small_json', { ch: channel.toIPC() })
                             .catch(reject);
                     });
-                    
-                    // タイムアウト Promise
+
+                    // Timeout Promise
                     const timeout = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('Timeout: Message not received within 5 seconds')), 5000);
                     });
-                    
-                    // レースでタイムアウトと受信を競争
+
+                    // Race timeout against reception
                     const received = await Promise.race([messageReceived, timeout]);
                     await window.invoke('report', { received });
-                    
+
                 } catch (e) {
                     console.error('Small JSON test error:', e);
                     await window.invoke('report', { received: false });
@@ -187,7 +187,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
                 let channel = ctx.arg::<Channel>("ch").unwrap();
 
                 async move {
-                    // 小さなJSONメッセージを送信
+                    // Send a small JSON message
                     let small_message = json!({
                         "type": "small",
                         "data": "test",
@@ -203,7 +203,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
                 if let Ok(r) = ctx.arg::<bool>("received") {
                     received.store(r, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -224,7 +224,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -232,7 +232,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");
@@ -252,7 +252,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
 fn test_channel_json_large() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -269,7 +269,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
             let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
-                    // メッセージ受信を Promise でラップ
+                    // Wrap message reception in a Promise
                     const messageReceived = new Promise((resolve, reject) => {
                         const channel = new window.Channel((msg) => {
                             console.log('Message received with type:', msg?.type, 'data length:', msg?.data?.length);
@@ -283,21 +283,21 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
                                 }
                             }
                         });
-                        
-                        // 送信を実行
+
+                        // Execute the send
                         window.invoke('send_large', { ch: channel.toIPC() })
                             .catch(reject);
                     });
-                    
-                    // タイムアウト Promise
+
+                    // Timeout Promise
                     const timeout = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('Timeout: Message not received within 5 seconds')), 5000);
                     });
-                    
-                    // レースでタイムアウトと受信を競争
+
+                    // Race timeout against reception
                     const received = await Promise.race([messageReceived, timeout]);
                     await window.invoke('report_large', { received });
-                    
+
                 } catch (e) {
                     console.error('Large message test error:', e);
                     await window.invoke('report_large', { received: false });
@@ -336,7 +336,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
                 if let Ok(r) = ctx.arg::<bool>("received") {
                     received.store(r, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -357,7 +357,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -365,7 +365,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report_large was not received within 30 seconds");
@@ -385,7 +385,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
 fn test_channel_binary_small() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -402,13 +402,13 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
             let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
-                    // メッセージ受信を Promise でラップ
+                    // Wrap message reception in a Promise
                     const messageReceived = new Promise((resolve, reject) => {
                         const channel = new window.Channel(async (msg) => {
                             if (msg instanceof ArrayBuffer) {
                                 const bytes = new Uint8Array(msg);
                                 console.log('Binary message received, size:', bytes.length);
-                                
+
                                 if (bytes.length === 100) {
                                     // Small binary message
                                     let allMatch = true;
@@ -422,21 +422,21 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
                                 }
                             }
                         });
-                        
-                        // 送信を実行
+
+                        // Execute the send
                         window.invoke('send_binary_small', { ch: channel.toIPC() })
                             .catch(reject);
                     });
-                    
-                    // タイムアウト Promise
+
+                    // Timeout Promise
                     const timeout = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('Timeout: Message not received within 5 seconds')), 5000);
                     });
-                    
-                    // レースでタイムアウトと受信を競争
+
+                    // Race timeout against reception
                     const received = await Promise.race([messageReceived, timeout]);
                     await window.invoke('report_binary', { received });
-                    
+
                 } catch (e) {
                     console.error('Binary test error:', e);
                     await window.invoke('report_binary', { received: false });
@@ -467,7 +467,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
                 if let Ok(r) = ctx.arg::<bool>("received") {
                     received.store(r, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -488,7 +488,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -496,7 +496,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");
@@ -516,7 +516,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
 fn test_channel_binary_large() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -533,13 +533,13 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
             let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
-                    // メッセージ受信を Promise でラップ
+                    // Wrap message reception in a Promise
                     const messageReceived = new Promise((resolve, reject) => {
                         const channel = new window.Channel(async (msg) => {
                             if (msg instanceof ArrayBuffer) {
                                 const bytes = new Uint8Array(msg);
                                 console.log('Binary message received, size:', bytes.length);
-                                
+
                                 if (bytes.length === 2000) {
                                     // Large binary message
                                     let allMatch = true;
@@ -553,21 +553,21 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
                                 }
                             }
                         });
-                        
-                        // 送信を実行
+
+                        // Execute the send
                         window.invoke('send_binary_large', { ch: channel.toIPC() })
                             .catch(reject);
                     });
-                    
-                    // タイムアウト Promise
+
+                    // Timeout Promise
                     const timeout = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('Timeout: Message not received within 5 seconds')), 5000);
                     });
-                    
-                    // レースでタイムアウトと受信を競争
+
+                    // Race timeout against reception
                     const received = await Promise.race([messageReceived, timeout]);
                     await window.invoke('report_binary', { received });
-                    
+
                 } catch (e) {
                     console.error('Binary test error:', e);
                     await window.invoke('report_binary', { received: false });
@@ -598,7 +598,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
                 if let Ok(r) = ctx.arg::<bool>("received") {
                     received.store(r, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -619,7 +619,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -627,7 +627,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");

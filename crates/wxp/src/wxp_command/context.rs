@@ -2,25 +2,25 @@ use crate::webview_ref::WebViewRef;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-/// コマンドの引数のデシリアライズに必要な情報
+/// Information required to deserialize command arguments
 pub(crate) struct DeserializeContext<'a> {
-    /// コマンド名
+    /// Command name
     pub(crate) name: &'a str,
-    /// Deserialize する引数のキー
+    /// Key of the argument to deserialize
     pub(crate) key: &'a str,
-    /// 引数の値（JSON）
+    /// Argument value (JSON)
     pub(crate) args: &'a serde_json::Value,
-    /// WebView参照
+    /// WebView reference
     pub(crate) webview: WebViewRef,
 }
 
-/// コマンド引数の変換を行うためのトレイト
+/// Trait for converting command arguments
 pub(crate) trait TryFromDeserializeContext<'de>: Sized {
-    /// DeserializeContext から Self への変換を試みる
+    /// Attempts to convert from a DeserializeContext into Self
     fn try_from(ctx: DeserializeContext<'de>) -> Result<Self, Value>;
 }
 
-/// Deserialize 可能な型に対して TryFromDeserializeContext を自動実装
+/// Automatically implements TryFromDeserializeContext for Deserializable types
 impl<'de, T: DeserializeOwned> TryFromDeserializeContext<'de> for T {
     fn try_from(cmd: DeserializeContext<'de>) -> Result<Self, Value> {
         let value = cmd.args.get(cmd.key).ok_or_else(|| {
@@ -35,18 +35,18 @@ impl<'de, T: DeserializeOwned> TryFromDeserializeContext<'de> for T {
     }
 }
 
-/// コマンドコンテキスト - 引数へのアクセスを提供
+/// Command context — provides access to arguments
 pub struct CommandContext<'a> {
-    /// コマンド名
+    /// Command name
     pub(crate) name: &'a str,
-    /// 引数の値（JSON）
+    /// Argument value (JSON)
     pub(crate) args: &'a serde_json::Value,
-    /// WebView参照
+    /// WebView reference
     pub(crate) webview: WebViewRef,
 }
 
 impl<'a> CommandContext<'a> {
-    /// 新しい CommandContext を作成
+    /// Creates a new CommandContext
     pub(crate) fn new(name: &'a str, args: &'a serde_json::Value, webview: WebViewRef) -> Self {
         Self {
             name,
@@ -55,7 +55,7 @@ impl<'a> CommandContext<'a> {
         }
     }
 
-    /// 指定されたセレクターで引数を型安全に取得
+    /// Retrieves an argument with type safety using the specified key
     pub fn arg<T>(&self, key: &'a str) -> Result<T, Value>
     where
         T: TryFromDeserializeContext<'a>,
@@ -69,12 +69,12 @@ impl<'a> CommandContext<'a> {
         T::try_from(ctx)
     }
 
-    /// コマンド引数全体を JSON として取得
+    /// Returns the full command arguments as JSON
     pub fn args_json(&self) -> Value {
         self.args.clone()
     }
 
-    /// WebView への参照を取得
+    /// Returns a reference to the WebView
     pub fn webview(&self) -> WebViewRef {
         self.webview.clone()
     }

@@ -6,14 +6,14 @@ use serde_json::Value;
 use std::future::Future;
 use std::sync::Arc;
 
-/// 同期・非同期コマンドを統一的に扱うトレイト
+/// Trait for handling both sync and async commands uniformly
 #[async_trait]
 pub(super) trait UnifiedCommand: Send + Sync {
-    /// コマンドを実行
+    /// Executes the command
     async fn execute(&self, ctx: CommandContext<'_>) -> Result<Value, Value>;
 }
 
-/// WxpCommandFn に UnifiedCommand を実装
+/// Implements UnifiedCommand for WxpCommandFn
 #[async_trait]
 impl<F, R, E> UnifiedCommand for SyncCommandFn<F, R, E>
 where
@@ -31,7 +31,7 @@ where
     }
 }
 
-/// AsyncCommandFn に UnifiedCommand を実装
+/// Implements UnifiedCommand for AsyncCommandFn
 #[async_trait]
 impl<F, Fut, R, E> UnifiedCommand for AsyncCommandFn<F, R, E>
 where
@@ -50,5 +50,5 @@ where
     }
 }
 
-/// 動的ディスパッチ用のコマンドラッパー
+/// Command wrapper for dynamic dispatch
 pub(super) type DynUnifiedCommand = Arc<dyn UnifiedCommand>;

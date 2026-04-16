@@ -1,7 +1,7 @@
 use super::context::CommandContext;
 use std::marker::PhantomData;
 
-/// 関数ベースのコマンド実装
+/// Function-based command implementation
 pub(crate) struct SyncCommandFn<F, R, E> {
     name: String,
     handler: F,

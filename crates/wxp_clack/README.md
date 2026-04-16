@@ -1,7 +1,7 @@
 # wxp_clack
 
-CLAP プラグイン基盤である [clack](https://github.com/prokopyl/clack) と wxp を統合するためのユーティリティクレートです。
+A utility crate for integrating [clack](https://github.com/prokopyl/clack), the CLAP plugin framework, with wxp.
 
-wxp は特定のプラグインフレームワークに依存しない汎用の WebView UI 基盤です。clack の型（`GuiSize`、`Window` など）と wxp / wry が扱う型の間には変換が必要です。このクレートはその橋渡しを担います。
+wxp is a general-purpose WebView UI framework that does not depend on any specific plugin framework. Conversion is needed between clack types (such as `GuiSize` and `Window`) and the types used by wxp / wry. This crate handles that bridging.
 
-具体的な使用例は [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md) を参照してください。
+For concrete usage examples, see [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md).

@@ -2,7 +2,7 @@ use super::context::CommandContext;
 use std::future::Future;
 use std::marker::PhantomData;
 
-/// クロージャベースの非同期コマンド
+/// Closure-based async command
 pub(super) struct AsyncCommandFn<F, R, E> {
     name: String,
     handler: F,

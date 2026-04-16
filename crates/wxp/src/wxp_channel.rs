@@ -1,7 +1,7 @@
-//! Rust から JavaScript へのリアルタイムプッシュ通知チャネル。
+//! Real-time push notification channel from Rust to JavaScript.
 //!
-//! JavaScript 側で生成した `Channel` オブジェクトを `invoke()` の引数として Rust に渡し、
-//! Rust 側から任意のタイミングで [`Channel::send`] を呼ぶことで JS にデータを送信できます。
+//! Generate a `Channel` object on the JavaScript side and pass it to Rust as an argument to `invoke()`.
+//! From the Rust side, call [`Channel::send`] at any time to deliver data to JS.
 
 pub(crate) mod channel;
 mod error;

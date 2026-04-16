@@ -27,7 +27,7 @@ fn main() {
 fn test_command_basic() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -46,21 +46,21 @@ fn test_command_basic() -> std::result::Result<(), String> {
                 console.log('Page loaded');
                 console.log('__WXP_INTERNALS__ exists:', typeof window.__WXP_INTERNALS__ !== 'undefined');
                 console.log('invoke exists:', typeof window.invoke !== 'undefined');
-                
+
                 try {
                     console.log('Calling echo...');
                     const echo = await window.invoke('echo', { test: 'data', num: 123 });
                     console.log('Echo result:', echo);
-                    
+
                     console.log('Calling add...');
                     const add = await window.invoke('add', { a: 10, b: 20 });
                     console.log('Add result:', add);
-                    
-                    const passed = echo.received.test === 'data' && 
-                                  echo.received.num === 123 && 
+
+                    const passed = echo.received.test === 'data' &&
+                                  echo.received.num === 123 &&
                                   add.result === 30;
                     console.log('Test passed:', passed);
-                    
+
                     await window.invoke('report', { passed: passed });
                 } catch (e) {
                     console.error('Test error:', e);
@@ -91,7 +91,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
                 if let Ok(result) = ctx.arg::<bool>("passed") {
                     passed.store(result, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -111,7 +111,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -119,7 +119,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");
@@ -139,7 +139,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
 fn test_command_error() -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -156,14 +156,14 @@ fn test_command_error() -> std::result::Result<(), String> {
             let html = r#"<script>
             window.addEventListener('load', async () => {
                 console.log('Error test page loaded');
-                
+
                 try {
                     await window.invoke('fail', {});
                     await window.invoke('report', { caught: false });
                 } catch (e) {
                     console.log('Caught error:', e.message);
-                    await window.invoke('report', { 
-                        caught: e.message.includes('This command always fails') 
+                    await window.invoke('report', {
+                        caught: e.message.includes('This command always fails')
                     });
                 }
             });
@@ -183,7 +183,7 @@ fn test_command_error() -> std::result::Result<(), String> {
                 if let Ok(result) = ctx.arg::<bool>("caught") {
                     caught.store(result, Ordering::SeqCst);
                 }
-                // レポート到着後すぐにテストを終了
+                // Stop the test immediately after the report arrives
                 RunLoop::current().stop_app();
                 async move { Ok::<_, &str>(json!({})) }
             });
@@ -203,7 +203,7 @@ fn test_command_error() -> std::result::Result<(), String> {
 
             window.show();
 
-            // リソースを保存して WebView の生存期間を延長
+            // Save resources to extend the WebView's lifetime
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,
@@ -211,7 +211,7 @@ fn test_command_error() -> std::result::Result<(), String> {
         })
         .detach();
 
-    // タイムアウトは補助的に30秒に設定
+    // Timeout is set as a fallback to 30 seconds
     RunLoop::current()
         .schedule(Duration::from_millis(30000), || {
             error!("Test timeout: report was not received within 30 seconds");

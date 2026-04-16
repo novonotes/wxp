@@ -1,11 +1,11 @@
-// 環境検出
+// Environment detection
 export function detectEnvironment(): "tauri" | "wxp" | "unknown" {
 	if (typeof window !== "undefined") {
-		// wxpプラグインの検出
+		// Detect wxp plugin
 		if ("__WXP_INTERNALS__" in window) {
 			return "wxp";
 		}
-		// Tauri 2.0の検出
+		// Detect Tauri 2.0
 		if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
 			return "tauri";
 		}
@@ -13,7 +13,7 @@ export function detectEnvironment(): "tauri" | "wxp" | "unknown" {
 	return "unknown";
 }
 
-// invoke関数の実装
+// invoke function implementation
 export async function invoke<T = unknown>(
 	cmd: string,
 	args?: Record<string, unknown>,
@@ -22,14 +22,14 @@ export async function invoke<T = unknown>(
 
 	switch (env) {
 		case "tauri": {
-			// Tauriの場合は動的インポート
+			// Use dynamic import for Tauri
 			const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
 			return tauriInvoke<T>(cmd, args);
 		}
 
 		case "wxp": {
-			// wxpプラグインの場合
-			// wxpはwindow.invokeを直接提供する
+			// For wxp plugin
+			// wxp provides window.invoke directly
 			const windowWithInvoke = window as any;
 			if (windowWithInvoke.invoke) {
 				return windowWithInvoke.invoke(cmd, args);
@@ -42,7 +42,7 @@ export async function invoke<T = unknown>(
 	}
 }
 
-// Channel実装
+// Channel implementation
 export class Channel<T = unknown> {
 	private channel: any;
 	private _onmessage?: (message: T) => void;
@@ -51,12 +51,12 @@ export class Channel<T = unknown> {
 
 	constructor(onmessage?: (message: T) => void) {
 		this._onmessage = onmessage;
-		// 一時的なIDを生成
+		// Generate a temporary ID
 		this.pendingId = `__CHANNEL__:pending_${Math.random()
 			.toString(36)
 			.substr(2, 9)}`;
 
-		// デバッグ用ログ
+		// Debug logging
 		console.log("[webview-bridge] Channel constructor called");
 		console.log("[webview-bridge] Environment detection:", {
 			__TAURI__: "__TAURI__" in window,
@@ -65,28 +65,28 @@ export class Channel<T = unknown> {
 			Channel: "Channel" in window,
 		});
 
-		// 同期的な初期化を試みる
+		// Attempt synchronous initialization
 		const env = detectEnvironment();
 		console.log("[webview-bridge] Detected environment:", env);
 
 		if (env === "tauri") {
-			// Tauriの場合は非同期で初期化
+			// Initialize asynchronously for Tauri
 			//this.initializationPromise =
 			this.initializeTauriChannel();
 		} else if (env === "wxp") {
-			// wxpの場合は同期的に初期化を試みる
+			// Attempt synchronous initialization for wxp
 			const wxpChannel = (window as any).Channel;
 			if (wxpChannel) {
 				this.channel = new wxpChannel(this._onmessage);
 				// this.initializationPromise =
 				Promise.resolve();
 			} else {
-				// 非同期で再試行
+				// Retry asynchronously
 				// this.initializationPromise =
 				this.initializeWxpChannel();
 			}
 		} else {
-			// 環境が不明な場合は非同期で再試行
+			// Retry asynchronously if environment is unknown
 			// this.initializationPromise =
 			this.initializeWithRetry();
 		}
@@ -98,7 +98,7 @@ export class Channel<T = unknown> {
 			const { Channel: TauriChannel } = await import("@tauri-apps/api/core");
 			console.log("[webview-bridge] TauriChannel imported successfully");
 
-			// TauriのChannelはコンストラクタでonmessageを渡す必要がある
+			// Tauri's Channel requires onmessage to be passed in the constructor
 			this.channel = new TauriChannel<T>();
 			if (this._onmessage) {
 				console.log(
@@ -118,7 +118,7 @@ export class Channel<T = unknown> {
 	}
 
 	private async initializeWxpChannel() {
-		// 少し待ってから再試行
+		// Wait briefly then retry
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		const retryChannel = (window as any).Channel;
 		if (retryChannel) {
@@ -130,7 +130,7 @@ export class Channel<T = unknown> {
 	}
 
 	private async initializeWithRetry() {
-		// 環境検出を少し待ってから再試行
+		// Wait briefly before retrying environment detection
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		const retryEnv = detectEnvironment();
 		console.log("[webview-bridge] Retry environment detection:", retryEnv);
@@ -157,10 +157,10 @@ export class Channel<T = unknown> {
 	}
 
 	set onmessage(handler: ((message: T) => void) | undefined) {
-		// 常に内部値を更新
+		// Always update the internal value
 		this._onmessage = handler;
 
-		// チャンネルが初期化されていれば設定
+		// Set on the channel if it has already been initialized
 		if (this.channel) {
 			console.log("[webview-bridge] Setting onmessage on existing channel");
 			this.channel.onmessage = handler;
@@ -171,9 +171,9 @@ export class Channel<T = unknown> {
 		}
 	}
 
-	// Tauriと同じtoJSON実装
+	// Same toJSON implementation as Tauri
 	toJSON(): string {
-		// 初期化が完了していない場合でも、Tauriはpending IDを処理できるはず
+		// Even if initialization is not complete, Tauri should be able to handle a pending ID
 		if (!this.channel) {
 			console.warn(
 				"[webview-bridge] toJSON called before channel initialization",
@@ -184,12 +184,12 @@ export class Channel<T = unknown> {
 		if (typeof this.channel.toJSON === "function") {
 			return this.channel.toJSON();
 		}
-		// wxpの場合の互換性実装
+		// Compatibility implementation for wxp
 		if (typeof this.channel.id === "number") {
 			return `__CHANNEL__:${this.channel.id}`;
 		}
 
-		// wxpのChannelオブジェクトでtoIPCメソッドがある場合
+		// If the wxp Channel object has a toIPC method
 		if (typeof this.channel.toIPC === "function") {
 			return this.channel.toIPC();
 		}
@@ -198,12 +198,12 @@ export class Channel<T = unknown> {
 	}
 }
 
-// convertFileSrc関// 環境情報を提供
+// Provides environment information
 export const webviewBridge = {
 	detectEnvironment,
 	invoke,
 	Channel,
 };
 
-// デフォルトエクスポート
+// Default export
 export default webviewBridge;

@@ -17,7 +17,7 @@ pub(crate) fn fetch_channel_data(id: u32) -> Option<ChannelResponseBody> {
     CHANNEL_DATA_STORE.lock().remove(&id)
 }
 
-/// チャンネルプロトコルを登録する
+/// Registers the channel protocol
 pub(crate) fn setup_channel_protocol(builder: WebViewBuilder) -> WebViewBuilder {
     builder.with_custom_protocol("wxp-channel".into(), move |_webview, request| {
         // Handle OPTIONS request for CORS preflight (required for Windows)

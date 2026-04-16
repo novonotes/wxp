@@ -1,4 +1,4 @@
-// チャンネルストリーミングデモ - run_loop版（CommandContext使用）
+// Channel streaming demo - run_loop version (using CommandContext)
 
 use host_window::{HostWindowHandle, create_window};
 use log::info;
@@ -18,9 +18,9 @@ const HTML: &str = r#"<!DOCTYPE html>
     <style>
         body { font-family: monospace; padding: 20px; }
         button { margin: 5px; }
-        #messages { 
-            border: 1px solid #ccc; 
-            padding: 10px; 
+        #messages {
+            border: 1px solid #ccc;
+            padding: 10px;
             margin-top: 10px;
             height: 400px;
             overflow-y: auto;
@@ -36,7 +36,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 
     <script>
         let currentChannel = null;
-        
+
         function addMessage(data) {
             const div = document.createElement('div');
             if (data.done) div.className = 'done';
@@ -44,24 +44,24 @@ const HTML: &str = r#"<!DOCTYPE html>
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
         }
-        
+
         async function startStreaming() {
             try {
                 startBtn.disabled = true;
-                
+
                 currentChannel = new Channel((message) => {
                     addMessage(message);
                     if (message.done) startBtn.disabled = false;
                 });
-                
+
                 addMessage({ info: `Channel: ${currentChannel.id}` });
-                
-                const response = await window.invoke('start_streaming', { 
-                    channel: currentChannel.toIPC() 
+
+                const response = await window.invoke('start_streaming', {
+                    channel: currentChannel.toIPC()
                 });
-                
+
                 addMessage({ info: `Response: ${JSON.stringify(response)}` });
-                
+
             } catch (error) {
                 addMessage({ error: error.message });
                 startBtn.disabled = false;
@@ -71,32 +71,32 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-// リソースを保持するための構造体
+// Struct to hold resources
 struct Resources {
     _window: HostWindowHandle,
     _webview: wxp::WebViewRef,
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    // RunLoopを初期化
+    // Initialize RunLoop
     RunLoop::init().unwrap();
 
-    // コマンドハンドラーを作成
+    // Create a command handler
     let handler = Arc::new(WxpCommandHandler::new());
 
-    // 簡略化されたコマンド登録
+    // Register commands
     handler.register_async("start_streaming", |ctx| {
-        // コンテキストから必要な値を事前に取得
+        // Retrieve required values from context in advance
         let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
 
-        // 非同期ブロック
+        // Async block
         async move {
-            // チャンネルIDを取得
+            // Get the channel ID
             let channel_id = channel.id();
 
             info!("Received channel ID: {}", channel_id);
 
-            // RunLoop上でメッセージ送信をスケジュール
+            // Schedule message sending on the RunLoop
             for i in 1..=10 {
                 let channel_clone = channel.clone();
                 let mut handle =
@@ -116,7 +116,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 handle.detach();
             }
 
-            // 完了メッセージ
+            // Completion message
             let channel_clone = channel.clone();
             let mut handle = RunLoop::current().schedule(Duration::from_millis(5500), move || {
                 info!("Streaming completed");
@@ -134,13 +134,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // リソースを保持する変数
+    // Variable to hold resources
     let resources = Arc::new(parking_lot::Mutex::new(None));
     let resources_for_schedule = resources.clone();
 
-    // WebView作成をスケジュール
+    // Schedule WebView creation
     let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
-        // ウィンドウ作成
+        // Create window
         let window_width = 600.0;
         let window_height = 500.0;
         let window = create_window(
@@ -149,11 +149,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             window_height,
         );
 
-        // WebView作成
+        // Create WebView
         let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
         let mut wry_context = wxp_context.build_wry_context();
 
-        // 親ウィンドウと同じサイズを設定
+        // Set bounds to match the parent window size
         let bounds = Rect {
             position: LogicalPosition::new(0.0, 0.0).into(),
             size: LogicalSize::new(window_width, window_height).into(),
@@ -167,10 +167,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .build_as_child(&window)
             .unwrap();
 
-        // ウィンドウ表示
+        // Show the window
         window.show();
 
-        // リソースを保存
+        // Save resources
         *resources_for_schedule.lock() = Some(Resources {
             _window: window,
             _webview: webview,
@@ -178,10 +178,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
     handle.detach();
 
-    // アプリ実行
+    // Run the app
     RunLoop::current().run_app();
 
-    // リソースは自動的にDropされる
+    // Resources are automatically dropped
     RunLoop::deinit();
 
     Ok(())

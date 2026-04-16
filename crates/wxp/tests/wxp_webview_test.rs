@@ -13,7 +13,7 @@ fn test_webview_basic() -> Result<(), String> {
     use parking_lot::Mutex;
     use std::sync::Arc;
 
-    // リソースを保持する構造体
+    // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WebViewRef,
@@ -31,7 +31,7 @@ fn test_webview_basic() -> Result<(), String> {
             let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
             let mut wry_context = wxp_context.build_wry_context();
 
-            // 親ウィンドウと同じサイズを設定
+            // Set bounds to match the parent window size
             let bounds = Rect {
                 position: LogicalPosition::new(0.0, 0.0).into(),
                 size: LogicalSize::new(window_width, window_height).into(),
@@ -46,7 +46,7 @@ fn test_webview_basic() -> Result<(), String> {
 
             window.show();
 
-            // リソースを保存
+            // Save resources
             *resources_clone.lock() = Some(Resources {
                 _window: window,
                 _webview: webview,

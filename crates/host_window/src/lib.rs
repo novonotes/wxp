@@ -12,7 +12,7 @@ pub use macos::HostWindowHandle;
 #[cfg(target_os = "windows")]
 pub use windows::HostWindowHandle;
 
-/// プラグイン環境用のウィンドウを作成
+/// Creates a window for the plugin environment
 pub fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     #[cfg(target_os = "macos")]
     return macos::create_window(title, width, height);

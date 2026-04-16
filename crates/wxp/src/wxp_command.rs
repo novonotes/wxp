@@ -1,6 +1,6 @@
-//! Tauri 互換のコマンド API レイヤー。
+//! Tauri-compatible command API layer.
 //!
-//! JavaScript からの `invoke()` 呼び出しを受け付けるコマンドを登録・実行します。
+//! Registers and executes commands that accept `invoke()` calls from JavaScript.
 
 mod async_command;
 pub(crate) mod command;

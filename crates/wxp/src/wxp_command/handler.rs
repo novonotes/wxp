@@ -9,18 +9,18 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
-/// JavaScript からの `invoke()` 呼び出しを受け付けるコマンドを管理・実行するハンドラー。
+/// A handler that manages and executes commands accepting `invoke()` calls from JavaScript.
 ///
-/// [`register_sync`](Self::register_sync) / [`register_async`](Self::register_async) で
-/// コマンドを登録し、[`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler)
-/// でビルダーに渡してください。
+/// Register commands with [`register_sync`](Self::register_sync) / [`register_async`](Self::register_async),
+/// then pass it to the builder with
+/// [`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler).
 pub struct WxpCommandHandler {
     commands: Arc<RwLock<HashMap<String, DynUnifiedCommand>>>,
     webview: Arc<RwLock<Option<WebViewRef>>>,
 }
 
 impl WxpCommandHandler {
-    /// 新しい `WxpCommandHandler` を作成する。
+    /// Creates a new `WxpCommandHandler`.
     pub fn new() -> Self {
         Self {
             commands: Arc::new(RwLock::new(HashMap::new())),
@@ -28,12 +28,12 @@ impl WxpCommandHandler {
         }
     }
 
-    /// WebView を設定
+    /// Sets the WebView
     pub(crate) fn set_webview(&self, webview: WebViewRef) {
         *self.webview.write() = Some(webview);
     }
 
-    /// 同期コマンドを登録
+    /// Registers a synchronous command
     pub fn register_sync<F, R, E>(&self, name: &str, handler: F) -> &Self
     where
         F: Fn(CommandContext<'_>) -> Result<R, E> + Send + Sync + 'static,
@@ -46,7 +46,7 @@ impl WxpCommandHandler {
         self
     }
 
-    /// クロージャから非同期コマンドを登録
+    /// Registers an async command from a closure
     pub fn register_async<F, Fut, R, E>(&self, name: &str, handler: F) -> &Self
     where
         F: Fn(CommandContext<'_>) -> Fut + Send + Sync + 'static,
@@ -60,7 +60,7 @@ impl WxpCommandHandler {
         self
     }
 
-    /// invokeリクエストを処理
+    /// Processes an invoke request
     async fn invoke(&self, request: InvokeRequest) -> InvokeResponse {
         let commands = self.commands.read();
         let webview = match self.webview.read().clone() {
@@ -70,7 +70,7 @@ impl WxpCommandHandler {
 
         match commands.get(&request.cmd) {
             Some(command) => {
-                // CommandContext を作成
+                // Create a CommandContext
                 let ctx = CommandContext::new(&request.cmd, &request.inner.args, webview);
 
                 match command.execute(ctx).await {
@@ -82,14 +82,14 @@ impl WxpCommandHandler {
         }
     }
 
-    /// IPCメッセージを処理してJavaScriptを実行
+    /// Processes an IPC message and executes JavaScript
     pub(crate) async fn handle_ipc(&self, body: &str) {
         if let Ok(request) = serde_json::from_str::<InvokeRequest>(body) {
             let callback_id = request.callback;
             let error_id = request.error;
             let response = self.invoke(request).await;
 
-            // WebViewが設定されていれば、JavaScriptを実行
+            // If the WebView is set, execute JavaScript
             if let Some(webview) = self.webview.read().as_ref() {
                 let js = match (response.value, response.error) {
                     (Some(value), None) => format!(

@@ -7,10 +7,10 @@ use crate::{
 };
 use serde_json::Value;
 
-/// WxpChannel の WxpTryFrom 実装
+/// WxpTryFrom implementation for WxpChannel
 impl<'de> TryFromDeserializeContext<'de> for Channel {
     fn try_from(cmd: DeserializeContext<'de>) -> Result<Self, Value> {
-        // チャンネルIDを取得
+        // Get the channel ID
         let value = cmd
             .args
             .get(&cmd.key)
@@ -19,7 +19,7 @@ impl<'de> TryFromDeserializeContext<'de> for Channel {
         let channel_id: String = serde_json::from_value(value.clone())
             .map_err(|e| Value::String(format!("Failed to deserialize channel ID: {}", e)))?;
 
-        // チャンネルIDの形式を検証
+        // Validate the channel ID format
         if !channel_id.starts_with(IPC_PAYLOAD_PREFIX) {
             return Err(Value::String(format!(
                 "Invalid channel value '{}', expected a string in the '{}ID' format",

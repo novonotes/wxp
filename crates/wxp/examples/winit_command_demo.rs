@@ -1,4 +1,4 @@
-// greetコマンドのデモ - winit版（CommandContext使用）
+// greet command demo - winit version (using CommandContext)
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
@@ -55,7 +55,7 @@ struct App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if self.window.is_none() {
-            // winit ウィンドウを作成
+            // Create a winit window
             let window_width = 600.0;
             let window_height = 400.0;
             let window_attrs = WindowAttributes::default()
@@ -63,11 +63,11 @@ impl ApplicationHandler for App {
                 .with_inner_size(LogicalSize::new(window_width, window_height));
             let window = event_loop.create_window(window_attrs).unwrap();
 
-            // WebViewを作成
+            // Create the WebView
             let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
             let mut wry_context = wxp_context.build_wry_context();
 
-            // 親ウィンドウと同じサイズを設定
+            // Set bounds to match the parent window size
             let bounds = Rect {
                 position: LogicalPosition::new(0.0, 0.0).into(),
                 size: WxpLogicalSize::new(window_width, window_height).into(),
@@ -104,12 +104,12 @@ impl ApplicationHandler for App {
 
 impl App {
     fn new() -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        // コマンドハンドラーを作成
+        // Create a command handler
         let handler = Arc::new(WxpCommandHandler::new());
 
-        // 簡略化されたコマンド登録
+        // Register commands
         handler.register_async("greet", |ctx| {
-            // 型安全に引数取得（デフォルト値付き）
+            // Retrieve argument with type safety (with a default value)
             let name = ctx.arg::<String>("name").unwrap_or_else(|_| "".to_string());
 
             async move {
@@ -130,13 +130,13 @@ impl App {
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     RunLoop::init().unwrap();
-    // イベントループを作成
+    // Create the event loop
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::new()?;
 
-    // イベントループを実行
+    // Run the event loop
     event_loop.run_app(&mut app)?;
 
     RunLoop::deinit();

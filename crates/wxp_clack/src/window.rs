@@ -1,4 +1,4 @@
-//! CLACKのWindowとwryのWindowHandle間の変換ユーティリティ
+//! Conversion utilities between CLACK's Window and wry's WindowHandle
 
 use clack_extensions::gui::Window;
 use std::num::{NonZeroIsize, NonZeroU32};
@@ -7,11 +7,11 @@ use wxp::raw_window_handle::{
     AppKitWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle, XcbWindowHandle,
 };
 
-/// CLACKのWindowをwryのWindowHandleに変換
+/// Converts a CLACK Window to a wry WindowHandle
 ///
 /// # Safety
-/// この関数は生のウィンドウハンドルを扱うため、安全性に注意が必要です。
-/// CLACKから取得したウィンドウハンドルが有効であることを前提としています。
+/// This function handles raw window handles and requires care regarding safety.
+/// It assumes that the window handle obtained from CLACK is valid.
 ///
 /// # Examples
 /// ```no_run
@@ -20,7 +20,7 @@ use wxp::raw_window_handle::{
 ///
 /// fn set_parent(window: Window) -> Result<(), Box<dyn std::error::Error>> {
 ///     let parent_handle = clack_to_wry_window_handle(&window)?;
-///     // parent_handleをWebViewの親として使用
+///     // Use parent_handle as the parent for WebView
 ///     Ok(())
 /// }
 /// ```

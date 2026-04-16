@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-/// wxp 用の WebContext 設定
+/// WebContext configuration for wxp
 ///
-/// WebView のユーザーデータ（キャッシュ、Cookie、ローカルストレージなど）を
-/// 保存するディレクトリを指定します。
-/// プラグイン環境では書き込み権限の問題が発生するため、
-/// data_directory の指定を必須としています。
+/// Specifies the directory for storing WebView user data
+/// (cache, cookies, local storage, etc.).
+/// A `data_directory` is required because permission issues can arise
+/// in plugin environments.
 ///
 /// # Example
 ///
@@ -21,23 +21,23 @@ pub struct WebContext {
 }
 
 impl WebContext {
-    /// 新しい WebContext を作成します。
+    /// Creates a new WebContext.
     ///
     /// # Arguments
     ///
-    /// * `data_directory` - WebView のユーザーデータを保存するディレクトリ（必須）
+    /// * `data_directory` - Directory for storing WebView user data (required)
     pub fn new(data_directory: impl Into<PathBuf>) -> Self {
         Self {
             data_directory: data_directory.into(),
         }
     }
 
-    /// データディレクトリのパスを取得します
+    /// Returns the path to the data directory
     pub fn data_directory(&self) -> &PathBuf {
         &self.data_directory
     }
 
-    /// この設定から wry::WebContext を作成します
+    /// Creates a wry::WebContext from this configuration
     pub fn build_wry_context(&self) -> wry::WebContext {
         wry::WebContext::new(Some(self.data_directory.clone()))
     }

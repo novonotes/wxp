@@ -17,10 +17,10 @@ use winapi::um::winuser::{
 static WINDOW_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 const WINDOW_CLASS_NAME: &str = "novonotes.host_window.Window";
 
-/// host_window のウィンドウハンドル
+/// Window handle for host_window
 ///
-/// このハンドルは `Send` と `Sync` を実装しており、
-/// スレッド間で安全に共有できます。
+/// This handle implements `Send` and `Sync`,
+/// and can be safely shared across threads.
 #[derive(Clone, Copy)]
 pub struct HostWindowHandle {
     hwnd: HWND,
@@ -30,31 +30,31 @@ unsafe impl Send for HostWindowHandle {}
 unsafe impl Sync for HostWindowHandle {}
 
 impl HostWindowHandle {
-    /// 生のHWNDポインタを取得
+    /// Returns the raw HWND pointer
     pub fn as_raw(&self) -> HWND {
         self.hwnd
     }
 
-    /// ウィンドウを表示
+    /// Shows the window
     pub fn show(&self) {
         unsafe {
             ShowWindow(self.hwnd, SW_SHOW);
         }
     }
 
-    /// ウィンドウを非表示
+    /// Hides the window
     pub fn hide(&self) {
         unsafe {
             ShowWindow(self.hwnd, SW_HIDE);
         }
     }
 
-    /// ウィンドウの可視性をチェック
+    /// Checks whether the window is visible
     pub fn is_visible(&self) -> bool {
         unsafe { IsWindowVisible(self.hwnd) != 0 }
     }
 
-    /// ウィンドウを破棄
+    /// Destroys the window
     pub fn destroy(self) {
         unsafe {
             if !self.hwnd.is_null() {
@@ -74,12 +74,12 @@ impl HasWindowHandle for HostWindowHandle {
     }
 }
 
-/// プラグイン環境用のウィンドウを作成
+/// Creates a window for the plugin environment
 pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     unsafe {
         let hinstance = GetModuleHandleW(ptr::null());
 
-        // ウィンドウクラスを登録（初回のみ）
+        // Register the window class (only once)
         if !WINDOW_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
             register_window_class(hinstance);
         }
@@ -90,7 +90,7 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
     }
 }
 
-/// ウィンドウクラスの登録
+/// Registers the window class
 unsafe fn register_window_class(hinstance: HINSTANCE) {
     unsafe {
         let class_name: Vec<u16> = OsStr::new(WINDOW_CLASS_NAME)
@@ -122,7 +122,7 @@ unsafe fn register_window_class(hinstance: HINSTANCE) {
     }
 }
 
-/// Win32ウィンドウの作成
+/// Creates a Win32 window
 unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: HINSTANCE) -> HWND {
     unsafe {
         let class_name: Vec<u16> = OsStr::new(WINDOW_CLASS_NAME)
@@ -131,7 +131,7 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
             .collect();
         let window_name: Vec<u16> = OsStr::new(title).encode_wide().chain(once(0)).collect();
 
-        // ウィンドウサイズを計算（クライアント領域のサイズを指定サイズにする）
+        // Calculate window size (so that the client area matches the specified size)
         let mut rect = RECT {
             left: 0,
             top: 0,
@@ -171,7 +171,7 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
     }
 }
 
-/// ウィンドウプロシージャ
+/// Window procedure
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: UINT,

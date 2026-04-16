@@ -1,11 +1,11 @@
 # host_window
 
-> **注意: このクレートは外部利用を想定していません。**
+> **Note: This crate is not intended for external use.**
 >
-> `wxp` クレートの開発・テスト専用の内部ユーティリティです。API の安定性は保証されず、予告なく変更される可能性があります。
+> It is an internal utility crate exclusively for the development and testing of the `wxp` crate. API stability is not guaranteed and it may change without notice.
 
-## 概要
+## Overview
 
-プラグイン環境でホストウィンドウを作成するためのユーティリティクレートです。
+A utility crate for creating host windows in a plugin environment.
 
-macOS / Windows / Linux に対応しています。
+Supports macOS / Windows / Linux.

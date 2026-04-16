@@ -1,9 +1,9 @@
-//! DPI変換とGUIサイズ調整のユーティリティ
+//! Utilities for DPI conversion and GUI size adjustment
 
 use clack_extensions::gui::{GuiApiType, GuiSize};
 use wxp::dpi::LogicalSize;
 
-/// GuiSizeを調整（DPI変換と制約を適用）
+/// Adjusts a GuiSize (applies DPI conversion and constraints)
 pub fn adjust_gui_size(
     size: GuiSize,
     scale_factor: f64,
@@ -13,7 +13,7 @@ pub fn adjust_gui_size(
     let converter = DpiConverter::new(scale_factor);
     let logical = converter.to_logical(size);
 
-    // サイズを制約
+    // Clamp the size to constraints
     let clamped = LogicalSize {
         width: logical.width.clamp(min.width, max.width),
         height: logical.height.clamp(min.height, max.height),
@@ -22,17 +22,17 @@ pub fn adjust_gui_size(
     converter.to_gui(clamped)
 }
 
-/// DPI対応のサイズ変換とWebView統合
+/// DPI-aware size conversion and WebView integration
 pub struct DpiConverter {
     scale_factor: f64,
     uses_logical: bool,
 }
 
 impl DpiConverter {
-    /// スケールファクターから `DpiConverter` を作成する。
+    /// Creates a `DpiConverter` from a scale factor.
     ///
-    /// プラットフォームに応じて論理ピクセルモード／物理ピクセルモードを自動選択します。
-    /// macOS・Windows は論理ピクセル、Linux（X11）は物理ピクセルになります。
+    /// Automatically selects logical pixel mode or physical pixel mode depending on the platform.
+    /// macOS and Windows use logical pixels; Linux (X11) uses physical pixels.
     pub fn new(scale_factor: f64) -> Self {
         let uses_logical = GuiApiType::default_for_current_platform()
             .map(|api| api.uses_logical_size())
@@ -44,17 +44,17 @@ impl DpiConverter {
         }
     }
 
-    /// スケールファクターを更新
+    /// Updates the scale factor
     pub fn set_scale(&mut self, scale_factor: f64) {
         self.scale_factor = scale_factor;
     }
 
-    /// 現在のスケールファクターを取得
+    /// Returns the current scale factor
     pub fn scale_factor(&self) -> f64 {
         self.scale_factor
     }
 
-    /// CLAP の `GuiSize` を論理ピクセル単位の `LogicalSize` に変換する。
+    /// Converts a CLAP `GuiSize` to a `LogicalSize` in logical pixel units.
     pub fn to_logical(&self, size: GuiSize) -> LogicalSize<f64> {
         if self.uses_logical {
             LogicalSize {
@@ -69,7 +69,7 @@ impl DpiConverter {
         }
     }
 
-    /// 論理ピクセル単位の `LogicalSize` を CLAP の `GuiSize` に変換する。
+    /// Converts a `LogicalSize` in logical pixel units to a CLAP `GuiSize`.
     pub fn to_gui(&self, size: LogicalSize<f64>) -> GuiSize {
         if self.uses_logical {
             GuiSize {
@@ -84,11 +84,11 @@ impl DpiConverter {
         }
     }
 
-    /// WebView の配置に使う `Rect` を作成する。
+    /// Creates a `Rect` for positioning the WebView.
     ///
-    /// origin は `(0, 0)` 固定で、size のみをプラットフォームに応じて
-    /// 論理／物理ピクセルに変換します。
-    /// [`WxpWebViewBuilder::with_bounds`](wxp::WxpWebViewBuilder::with_bounds) に渡してください。
+    /// The origin is fixed at `(0, 0)`; only the size is converted to logical or physical
+    /// pixels depending on the platform.
+    /// Pass the result to [`WxpWebViewBuilder::with_bounds`](wxp::WxpWebViewBuilder::with_bounds).
     pub fn create_webview_bounds(&self, size: LogicalSize<f64>) -> wxp::Rect {
         use wxp::dpi::{LogicalPosition, Size};
 

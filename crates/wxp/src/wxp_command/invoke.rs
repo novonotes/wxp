@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// フロントエンドからのinvokeリクエスト
+/// invoke request from the frontend
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct InvokeRequest {
@@ -18,7 +18,7 @@ pub(super) struct InvokeBody {
     pub(crate) args: Value,
 }
 
-/// フロントエンドへのレスポンス
+/// Response to the frontend
 #[derive(Debug, Serialize)]
 pub(super) struct InvokeResponse {
     #[serde(skip_serializing_if = "Option::is_none")]

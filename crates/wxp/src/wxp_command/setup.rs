@@ -7,16 +7,16 @@ pub(crate) fn setup_invoke_handler_internal(
     builder: WebViewBuilder,
     handler: Arc<WxpCommandHandler>,
 ) -> WebViewBuilder {
-    // IPCハンドラーを設定
+    // Set up the IPC handler
     builder.with_ipc_handler(move |req: Request<String>| {
         let handler = handler.clone();
         let body = req.body().clone();
 
-        // RunLoopで非同期処理を実行
+        // Run async processing on the RunLoop
         let handle = RunLoop::current().spawn(async move {
-            // handle_ipcメソッドが直接JavaScriptを実行する
+            // handle_ipc directly executes JavaScript
             handler.handle_ipc(&body).await;
         });
-        drop(handle); // 待機しない
+        drop(handle); // Do not wait
     })
 }

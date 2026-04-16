@@ -37,7 +37,11 @@ impl WebContext {
         &self.data_directory
     }
 
-    /// Creates a wry::WebContext from this configuration
+    /// Creates a `wry::WebContext` from this configuration.
+    ///
+    /// The returned `wry::WebContext` **must be kept alive for the entire lifetime of the WebView**.
+    /// After passing it to [`WxpWebViewBuilder::new`](crate::WxpWebViewBuilder::new),
+    /// make sure the caller holds the variable so it is not dropped.
     pub fn build_wry_context(&self) -> wry::WebContext {
         wry::WebContext::new(Some(self.data_directory.clone()))
     }

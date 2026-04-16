@@ -17,6 +17,19 @@ use zip::result::ZipError;
 /// Used in combination with [`WxpCommandHandler`] to configure bidirectional JavaScript ↔ Rust
 /// communication. The Channel API (push notifications from Rust → JS) is always enabled.
 ///
+/// [`build_as_child`](Self::build_as_child) must be called on the **main thread**.
+///
+/// ## Asset Serving Options
+///
+/// | Method | Use case |
+/// |---|---|
+/// | [`with_url`](Self::with_url) | Point directly to a Vite dev server during development |
+/// | [`with_serve_dir`](Self::with_serve_dir) | Serve pre-built assets from the filesystem |
+/// | [`with_serve_zip`](Self::with_serve_zip) | Serve a ZIP embedded via `include_bytes!` (for release builds) |
+///
+/// The typical release pattern is to combine `with_serve_zip("my-plugin", BYTES)` with
+/// `with_url("my-plugin://localhost/")`.
+///
 /// # Basic Usage
 ///
 /// ```no_run

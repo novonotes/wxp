@@ -9,18 +9,37 @@ Built on wry, it provides Tauri-like IPC features and simplifies building plugin
 - **Command API**: Type-safe request/response communication from JS to Rust
 - **Channel API**: Push notifications and streaming from Rust to JavaScript
 
+## Supported Platforms
+
+macOS, Windows, and Linux. Primary verification targets are macOS and Windows.
+
+## Caveats
+
+Before using wxp, keep the following constraints in mind:
+
+- **Main-thread only**: constructing and operating a WebView must be done on the main thread.
+  `WebViewRef` is `Send + Sync` so you can store it in structs owned by other threads,
+  but that does **not** mean you can drive the WebView from a background thread.
+- **Hold on to `WebViewRef`**: the WebView is destroyed when the last `WebViewRef` is dropped.
+  Keep at least one reference alive for as long as you want the UI to stay visible.
+
 ## WxpWebViewBuilder
 
 Simplifies WebView construction and management.
 
 ```rust
-use wxp::WxpWebViewBuilder;
+use std::sync::Arc;
+use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-let webview = WxpWebViewBuilder::new()
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
+    .build_wry_context();
+let handler = Arc::new(WxpCommandHandler::new());
+
+let webview = WxpWebViewBuilder::new(&mut web_context)
     .with_command_handler(handler)
     .with_html(HTML_CONTENT)
     .with_devtools(true)
-    .build(&window)?;
+    .build_as_child(&window)?;
 ```
 ## Command
 
@@ -76,7 +95,7 @@ const ch = new Channel((message) => {
   console.log("Received event:", message);
 });
 
-// Register the channel
+// Pass the Channel object directly as an argument to invoke().
 await invoke("subscribe_events", { channel: ch });
 ```
 

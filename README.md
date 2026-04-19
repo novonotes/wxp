@@ -4,11 +4,26 @@
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
-## Usage
+## Quick Start
 
-See the [crates/wxp README](./crates/wxp/README.md) for instructions on using the wxp crate.
+```rust
+use std::sync::Arc;
+use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-For an introductory guide to plugin development with wxp, see [wxp-gain-example](https://github.com/novonotes/wxp-gain-example).
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
+    .build_wry_context();
+let handler = Arc::new(WxpCommandHandler::new());
+
+// `webview` must be kept alive while the UI is shown (see Caveats below).
+let webview = WxpWebViewBuilder::new(&mut web_context)
+    .with_command_handler(handler)
+    .with_url("http://localhost:5173/")
+    .build_as_child(&window)?;
+```
+
+See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate
+(including platform support and the main-thread / lifetime caveats), and
+[wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.
 
 ## Repository Structure
 
@@ -21,7 +36,9 @@ For an introductory guide to plugin development with wxp, see [wxp-gain-example]
 
 ## Project Status
 
-The current status is alpha.
+The current status is **alpha** (`0.1.0-alpha.x`).
+wxp is used in production by NovoNotes, but the public API is still stabilizing —
+expect breaking changes between alpha releases.
 
 ## Installation
 

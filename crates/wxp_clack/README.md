@@ -4,4 +4,4 @@ A utility crate for integrating [clack](https://github.com/prokopyl/clack), the 
 
 wxp is a general-purpose WebView UI foundation that does not depend on any specific plugin framework. Conversion is needed between clack types (such as `GuiSize` and `Window`) and the types used by wxp / wry. This crate handles that bridging.
 
-For concrete usage examples, see [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md).
+For concrete usage examples, see [`wrac-plugin-template`](https://github.com/novonotes/wrac-plugin-template/blob/main/README.md).

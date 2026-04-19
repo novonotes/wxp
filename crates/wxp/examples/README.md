@@ -3,7 +3,7 @@
 This directory contains standalone application samples for verifying the behavior of and developing the wxp crate itself.
 
 **Plugin developers do not need to refer to these samples.**
-As a starting point for plugin development, see [`wxp-gain-example`](https://github.com/novonotes/wxp-gain-example/blob/main/README.md).
+As a starting point for plugin development, see [`wrac-plugin-template`](https://github.com/novonotes/wrac-plugin-template/blob/main/README.md).
 
 ## List of Examples
 

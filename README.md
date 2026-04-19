@@ -25,6 +25,14 @@ See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough o
 (including platform support and the main-thread / lifetime caveats), and
 [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.
 
+## Give It a Spin?
+
+`wxp` is used in [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template), which ships with a simple Gain plugin built on the WRAC stack.
+Try loading it in your DAW and let us know how it works in practice.
+
+Even a quick note like **"Works on Logic Pro 10.7"** is helpful for the community:
+👉 [DAW Compatibility Reports](https://github.com/novonotes/wrac-plugin-template/discussions/6)
+
 ## Repository Structure
 
 | Path | Description |

@@ -24,6 +24,14 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 詳しい使い方は [crates/wxp の README](./crates/wxp/README.md)、
 プラグイン全体を通した例は [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template) を参照してください。
 
+## 動作報告を募集中！
+
+`wxp` を使った実例として、WRAC スタック上に構築されたシンプルな Gain プラグイン入りの [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template) があります。
+ぜひお手元の DAW で動かして、実際の動作状況を教えてください。
+
+「Logic Pro 10.7 で動きました！」のような短い報告でも、コミュニティにとって十分役立ちます：
+👉 [DAW互換性報告](https://github.com/novonotes/wrac-plugin-template/discussions/6)
+
 ## このリポジトリの構成
 
 | パス | 内容 |

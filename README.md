@@ -1,6 +1,6 @@
 # wxp
 
-`wxp` is a WebView-based audio plugin UI framework.
+`wxp` is a WebView-based foundation for audio plugin UIs.
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
@@ -14,7 +14,7 @@ For an introductory guide to plugin development with wxp, see [wxp-gain-example]
 
 | Path | Description |
 |-----|------|
-| `crates/wxp` | WebView UI framework (main crate) |
+| `crates/wxp` | WebView UI foundation (main crate) |
 | `crates/wxp_clack` | Integration utilities for CLAP (clack) and wxp |
 | `crates/host_window` | Dev dependency for wxp. Not intended for external use. |
 | `packages/webview-bridge` | JS/TS IPC bridge (`@novonotes/webview-bridge`) |

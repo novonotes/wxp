@@ -1,6 +1,6 @@
 # wxp
 
-wxp (WebView X Plugin) is a WebView integration crate for audio plugin development.
+wxp (WebView X Plugin) is a WebView foundation for audio plugin development.
 Built on wry, it provides Tauri-like IPC features and simplifies building plugin UIs.
 
 ## Key Features

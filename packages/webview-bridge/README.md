@@ -1,56 +1,28 @@
 # @novonotes/webview-bridge
 
-A TypeScript library that provides a unified interface for IPC communication between frontend code running inside a WebView and the backend.
+The TypeScript-side IPC bridge for [wxp](https://github.com/novonotes/wxp).
+It exposes `invoke` and `Channel` for communicating with the Rust side of a wxp WebView.
 
-## Overview
+## Installation
 
-This package provides a unified IPC communication API across different WebView environments (Tauri, wxp). It automatically detects the runtime environment and uses the appropriate backend API, enabling frontend code reuse.
+The package is not yet published to npm. Install it from the tarball distributed via
+GitHub Releases:
 
-### Supported Backends
-
-- **Tauri** - Tauri applications
-- **wxp** - WebView X Plugin (for audio plugin development)
+```sh
+npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+```
 
 ## Usage
 
-For the time being, distribution is done via tarball rather than npm publish.
+For detailed usage of `invoke` and `Channel` including matching Rust-side code, see the
+[wxp README](../../crates/wxp/README.md).
+
+## Building the package (for maintainers)
+
+If you need to produce a tarball yourself (for example, to cut a new release):
 
 ```sh
 npm install
 npm run build
 npm pack
-```
-
-For integration with the Rust side, refer to the documentation for [wxp](https://github.com/novonotes/wxp) or [tauri](https://github.com/tauri-apps/tauri).
-
-### Command
-
-```typescript
-import { invoke, Channel } from "@novonotes/webview-bridge";
-
-// Invoke a command
-const result = await invoke("greet", { name: "World" });
-console.log(result); // "Hello, World!"
-```
-
-### Channel
-
-```typescript
-import { invoke, Channel } from "@novonotes/webview-bridge";
-
-// Streaming channel
-const channel = new Channel<MyMessageType>((message) => {
-  console.log("Received:", message);
-});
-
-await invoke("start_streaming", { channel });
-```
-
-### Environment Detection
-
-```typescript
-import { detectEnvironment } from "@novonotes/webview-bridge";
-
-const env = detectEnvironment();
-console.log("Current environment:", env); // 'tauri' | 'wxp' | 'unknown'
 ```

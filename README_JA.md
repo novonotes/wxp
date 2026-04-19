@@ -4,11 +4,25 @@
 HTML / CSS / TypeScript でプラグイン GUI を記述し、[wry](https://github.com/tauri-apps/wry) をベースにした WebView 上で動作させます。
 Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript の双方向通信を簡潔に記述できます。
 
-## 利用方法
+## クイックスタート
 
-wxp クレートの利用方法は、 [crates/wxp の README](./crates/wxp/README.md) にまとめています。
+```rust
+use std::sync::Arc;
+use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-また、wxp を用いたプラグイン開発を俯瞰するための入門用ドキュメントとして、[wxp-gain-example](https://github.com/novonotes/wxp-gain-example) を用意しています。
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
+    .build_wry_context();
+let handler = Arc::new(WxpCommandHandler::new());
+
+// `webview` は UI を表示している間 drop させないこと（後述の Caveats を参照）。
+let webview = WxpWebViewBuilder::new(&mut web_context)
+    .with_command_handler(handler)
+    .with_url("http://localhost:5173/")
+    .build_as_child(&window)?;
+```
+
+詳しい使い方は [crates/wxp の README](./crates/wxp/README.md)、
+プラグイン全体を通した例は [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template) を参照してください。
 
 ## このリポジトリの構成
 
@@ -21,7 +35,9 @@ wxp クレートの利用方法は、 [crates/wxp の README](./crates/wxp/READM
 
 ## プロジェクトのステータス
 
-現時点のステータスは alpha です。
+現時点のステータスは **alpha** (`0.1.0-alpha.x`) です。
+wxp は NovoNotes のプロダクションで使用していますが、公開 API はまだ安定化の途上で、
+alpha リリース間での非互換変更があり得ます。
 
 ## インストール方法
 

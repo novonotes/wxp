@@ -4,6 +4,8 @@
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
+> Japanese version: [README_JA.md](./README_JA.md)
+
 ## Quick Start
 
 ```rust
@@ -24,14 +26,6 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate
 (including platform support and the main-thread / lifetime caveats), and
 [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.
-
-## Give It a Spin?
-
-`wxp` is used in [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template), which ships with a simple Gain plugin built on the WRAC stack.
-Try loading it in your DAW and let us know how it works in practice.
-
-Even a quick note like **"Works on Logic Pro 10.7"** is helpful for the community:
-👉 [DAW Compatibility Reports](https://github.com/novonotes/wrac-plugin-template/discussions/6)
 
 ## Repository Structure
 

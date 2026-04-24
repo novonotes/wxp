@@ -60,7 +60,9 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///                   Create one with `wxp::WebContext::build_wry_context()`.
     ///                   In a plugin environment, typically use `<system temp>/<plugin name>`.
     pub fn new(web_context: &'a mut wry::WebContext) -> Self {
-        let builder = WebViewBuilder::new_with_web_context(web_context);
+        // In plugin UIs, the first click on an inactive editor should still reach the WebView
+        // so controls like knobs can start dragging immediately after window activation.
+        let builder = WebViewBuilder::new_with_web_context(web_context).with_accept_first_mouse(true);
         let builder = setup_channel_protocol(builder);
 
         Self {

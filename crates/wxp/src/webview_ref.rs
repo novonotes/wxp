@@ -44,6 +44,11 @@ impl WebViewRef {
         self.inner.borrow().set_bounds(bounds)
     }
 
+    /// Moves keyboard focus away from the WebView back to its parent.
+    pub fn focus_parent(&self) -> Result<(), wry::Error> {
+        self.inner.borrow().focus_parent()
+    }
+
     /// Returns a weak reference (for internal use)
     pub(crate) fn downgrade(&self) -> Weak<SendWrapper<RefCell<WebView>>> {
         Arc::downgrade(&self.inner)

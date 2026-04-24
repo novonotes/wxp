@@ -35,6 +35,7 @@ use zip::result::ZipError;
 /// ```no_run
 /// use wxp::{WxpWebViewBuilder, WxpCommandHandler, WebContext};
 /// use std::sync::Arc;
+/// # fn example(window: &impl wry::raw_window_handle::HasWindowHandle) -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin")).build_wry_context();
 /// let handler = Arc::new(WxpCommandHandler::new());
@@ -42,6 +43,8 @@ use zip::result::ZipError;
 ///     .with_command_handler(handler)
 ///     .with_url("http://localhost:5173/")
 ///     .build_as_child(&window)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,

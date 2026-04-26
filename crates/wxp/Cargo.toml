@@ -21,6 +21,7 @@ mime_guess = "2"
 send_wrapper = "0.6"
 novonotes_run_loop = { path = "../../vendor/run_loop" }
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
@@ -32,7 +33,6 @@ chrono = "0.4"
 winit = "0.30"
 novonotes_run_loop = { path = "../../vendor/run_loop" }
 host_window = { path = "../host_window" }
-log = "0.4"
 
 [[test]]
 name = "wxp_webview_test"

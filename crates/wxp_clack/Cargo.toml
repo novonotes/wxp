@@ -8,7 +8,7 @@ repository = "https://github.com/novonotes/wxp"
 readme = "../../README.md"
 
 [dependencies]
-clack-extensions = { git = "https://github.com/prokopyl/clack.git", rev = "9f2ccb40", features = ["gui"] }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", rev = "4541f03", features = ["gui"] }
 wxp = { path = "../wxp" }
 
 [lints]

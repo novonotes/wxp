@@ -29,13 +29,26 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libx11-dev
+          sudo apt-get install -y libgtk-3-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libx11-dev xvfb
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Check Rust formatting
+        run: |
+          cargo fmt --manifest-path crates/host_window/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/wxp/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/wxp_clack/Cargo.toml -- --check
       - name: Cargo check
         run: cargo check --workspace --all-targets
-      - name: Cargo test
+      - name: Cargo test lib
         run: cargo test --workspace --lib
+      - name: Cargo test doctests
+        run: cargo test --workspace --doc
+      - name: Cargo test integration
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo test --workspace --tests --examples
+      - name: Cargo test integration
+        if: matrix.os == 'ubuntu-latest'
+        run: xvfb-run -a cargo test --workspace --tests --examples
 
   webview-bridge:
     name: webview-bridge

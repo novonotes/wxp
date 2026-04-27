@@ -1,3 +1,4 @@
 [submodule "wry"]
 	path = wry
 	url = https://github.com/novonotes/wry.git
+	branch = novonotes

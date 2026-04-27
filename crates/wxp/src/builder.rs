@@ -62,7 +62,8 @@ impl<'a> WxpWebViewBuilder<'a> {
     pub fn new(web_context: &'a mut wry::WebContext) -> Self {
         // In plugin UIs, the first click on an inactive editor should still reach the WebView
         // so controls like knobs can start dragging immediately after window activation.
-        let builder = WebViewBuilder::new_with_web_context(web_context).with_accept_first_mouse(true);
+        let builder =
+            WebViewBuilder::new_with_web_context(web_context).with_accept_first_mouse(true);
         let builder = setup_channel_protocol(builder);
 
         Self {

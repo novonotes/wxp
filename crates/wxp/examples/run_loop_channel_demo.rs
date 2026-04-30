@@ -4,6 +4,7 @@ use host_window::{HostWindowHandle, create_window};
 use log::info;
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use wxp::WebContext;
@@ -82,7 +83,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     RunLoop::init().unwrap();
 
     // Create a command handler
-    let handler = Arc::new(WxpCommandHandler::new());
+    let handler = Rc::new(WxpCommandHandler::new());
 
     // Register commands
     handler.register_async("start_streaming", |ctx| {

@@ -2,7 +2,7 @@
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
-use std::sync::Arc;
+use std::rc::Rc;
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -57,7 +57,7 @@ fn main() -> wry::Result<()> {
         .unwrap();
 
     // Create a command handler
-    let handler = Arc::new(WxpCommandHandler::new());
+    let handler = Rc::new(WxpCommandHandler::new());
 
     // Register commands
     handler.register_async("greet", |ctx| {

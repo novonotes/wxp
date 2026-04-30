@@ -3,6 +3,7 @@
 use log::info;
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use winit::{
@@ -86,7 +87,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 struct App {
     window: Option<Window>,
     webview: Option<wxp::WebViewRef>,
-    handler: Arc<WxpCommandHandler>,
+    handler: Rc<WxpCommandHandler>,
     event_loop_proxy: winit::event_loop::EventLoopProxy<UserEvent>,
     _web_context: Option<WebContext>,
 }
@@ -196,7 +197,7 @@ impl App {
         event_loop_proxy: winit::event_loop::EventLoopProxy<UserEvent>,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         // Create a command handler
-        let handler = Arc::new(WxpCommandHandler::new());
+        let handler = Rc::new(WxpCommandHandler::new());
 
         // Register commands
         let proxy_clone = event_loop_proxy.clone();

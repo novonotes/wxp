@@ -4,10 +4,9 @@ use super::context::CommandContext;
 use super::invoke::{InvokeRequest, InvokeResponse};
 use super::unified::DynUnifiedCommand;
 use crate::webview_ref::WebViewRef;
-use parking_lot::RwLock;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Arc;
 
 /// A handler that manages and executes commands accepting `invoke()` calls from JavaScript.
 ///
@@ -15,66 +14,66 @@ use std::sync::Arc;
 /// then pass it to the builder with
 /// [`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler).
 ///
-/// Can be shared across multiple locations as `Arc<WxpCommandHandler>`.
+/// Can be shared across multiple locations as `Rc<WxpCommandHandler>`.
 /// Internally holds a strong reference to [`WebViewRef`](crate::WebViewRef),
 /// so the WebView stays alive as long as `WxpCommandHandler` is alive.
 ///
 /// Command closures are executed on the run loop thread.
 pub struct WxpCommandHandler {
-    commands: Arc<RwLock<HashMap<String, DynUnifiedCommand>>>,
-    webview: Arc<RwLock<Option<WebViewRef>>>,
+    commands: RefCell<HashMap<String, DynUnifiedCommand>>,
+    webview: RefCell<Option<WebViewRef>>,
 }
 
 impl WxpCommandHandler {
     /// Creates a new `WxpCommandHandler`.
     pub fn new() -> Self {
         Self {
-            commands: Arc::new(RwLock::new(HashMap::new())),
-            webview: Arc::new(RwLock::new(None)),
+            commands: RefCell::new(HashMap::new()),
+            webview: RefCell::new(None),
         }
     }
 
     /// Sets the WebView
     pub(crate) fn set_webview(&self, webview: WebViewRef) {
-        *self.webview.write() = Some(webview);
+        *self.webview.borrow_mut() = Some(webview);
     }
 
     /// Registers a synchronous command
     pub fn register_sync<F, R, E>(&self, name: &str, handler: F) -> &Self
     where
-        F: Fn(CommandContext<'_>) -> Result<R, E> + Send + Sync + 'static,
-        R: serde::Serialize + Send + Sync + 'static,
-        E: serde::Serialize + Send + Sync + 'static,
+        F: Fn(CommandContext<'_>) -> Result<R, E> + 'static,
+        R: serde::Serialize + 'static,
+        E: serde::Serialize + 'static,
     {
         let command = SyncCommandFn::new(name, handler);
-        let mut commands = self.commands.write();
-        commands.insert(command.name().to_string(), Arc::new(command));
+        let mut commands = self.commands.borrow_mut();
+        commands.insert(command.name().to_string(), std::rc::Rc::new(command));
         self
     }
 
     /// Registers an async command from a closure
     pub fn register_async<F, Fut, R, E>(&self, name: &str, handler: F) -> &Self
     where
-        F: Fn(CommandContext<'_>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<R, E>> + Send + 'static,
-        R: serde::Serialize + Send + Sync + 'static,
-        E: serde::Serialize + Send + Sync + 'static,
+        F: Fn(CommandContext<'_>) -> Fut + 'static,
+        Fut: Future<Output = Result<R, E>> + 'static,
+        R: serde::Serialize + 'static,
+        E: serde::Serialize + 'static,
     {
         let command = AsyncCommandFn::new(name, handler);
-        let mut commands = self.commands.write();
-        commands.insert(command.name().to_string(), Arc::new(command));
+        let mut commands = self.commands.borrow_mut();
+        commands.insert(command.name().to_string(), std::rc::Rc::new(command));
         self
     }
 
     /// Processes an invoke request
     async fn invoke(&self, request: InvokeRequest) -> InvokeResponse {
-        let commands = self.commands.read();
-        let webview = match self.webview.read().clone() {
+        let command = self.commands.borrow().get(&request.cmd).cloned();
+        let webview = match self.webview.borrow().clone() {
             Some(wv) => wv,
             None => return InvokeResponse::error("WebView not set".to_string()),
         };
 
-        match commands.get(&request.cmd) {
+        match command {
             Some(command) => {
                 // Create a CommandContext
                 let ctx = CommandContext::new(&request.cmd, &request.inner.args, webview);
@@ -96,7 +95,7 @@ impl WxpCommandHandler {
             let response = self.invoke(request).await;
 
             // If the WebView is set, execute JavaScript
-            if let Some(webview) = self.webview.read().as_ref() {
+            if let Some(webview) = self.webview.borrow().as_ref() {
                 let js = match (response.value, response.error) {
                     (Some(value), None) => format!(
                         "window.__WXP_INTERNALS__.invoke[{}]({})",

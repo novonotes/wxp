@@ -2,6 +2,7 @@ use host_window::create_window;
 use log::error;
 use novonotes_run_loop::{RunLoop, test_harness};
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -71,7 +72,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Command Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let passed = test_passed_clone.clone();
 
             handler.register_async("echo", |ctx| {
@@ -170,7 +171,7 @@ fn test_command_error() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Error Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let caught = error_caught_clone.clone();
 
             handler.register_async("fail", |_| async move {

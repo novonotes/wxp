@@ -7,11 +7,11 @@ Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript 
 ## クイックスタート
 
 ```rust
-use std::sync::Arc;
+use std::rc::Rc;
 use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
 let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
-let handler = Arc::new(WxpCommandHandler::new());
+let handler = Rc::new(WxpCommandHandler::new());
 
 // `webview` は UI を表示している間 drop させないこと（後述の Caveats を参照）。
 let webview = WxpWebViewBuilder::new(&mut web_context)

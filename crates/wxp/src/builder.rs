@@ -7,6 +7,7 @@ use crate::wxp_webview::error::{Error, Result};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wry::{WebViewBuilder, http::Response};
 use zip::ZipArchive;
@@ -34,11 +35,11 @@ use zip::result::ZipError;
 ///
 /// ```no_run
 /// use wxp::{WxpWebViewBuilder, WxpCommandHandler, WebContext};
-/// use std::sync::Arc;
+/// use std::rc::Rc;
 /// # fn example(window: &impl wxp::raw_window_handle::HasWindowHandle) -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
-/// let handler = Arc::new(WxpCommandHandler::new());
+/// let handler = Rc::new(WxpCommandHandler::new());
 /// let webview = WxpWebViewBuilder::new(&mut web_context)
 ///     .with_command_handler(handler)
 ///     .with_url("http://localhost:5173/")
@@ -48,7 +49,7 @@ use zip::result::ZipError;
 /// ```
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,
-    command_handler: Option<Arc<WxpCommandHandler>>,
+    command_handler: Option<Rc<WxpCommandHandler>>,
 }
 
 impl<'a> WxpWebViewBuilder<'a> {
@@ -278,7 +279,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     /// Used to register commands that can be called via `invoke()` from JavaScript.
     /// Register commands in advance with `WxpCommandHandler::register_sync` / `register_async`,
     /// then pass the handler to the builder with this method.
-    pub fn with_command_handler(mut self, handler: Arc<WxpCommandHandler>) -> Self {
+    pub fn with_command_handler(mut self, handler: Rc<WxpCommandHandler>) -> Self {
         let builder = setup_invoke_handler_internal(self.builder, handler.clone());
         self.command_handler = Some(handler);
         Self {

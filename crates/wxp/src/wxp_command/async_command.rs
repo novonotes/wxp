@@ -21,8 +21,8 @@ impl<F, R, E> AsyncCommandFn<F, R, E> {
 
 impl<F, Fut, R, E> AsyncCommandFn<F, R, E>
 where
-    F: Fn(CommandContext<'_>) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<R, E>> + Send,
+    F: Fn(CommandContext<'_>) -> Fut,
+    Fut: Future<Output = Result<R, E>>,
 {
     pub(super) fn name(&self) -> &str {
         &self.name

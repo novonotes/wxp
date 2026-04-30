@@ -2,7 +2,7 @@
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
-use std::sync::Arc;
+use std::rc::Rc;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -48,7 +48,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 struct App {
     window: Option<Window>,
     webview: Option<wxp::WebViewRef>,
-    handler: Arc<WxpCommandHandler>,
+    handler: Rc<WxpCommandHandler>,
     _web_context: Option<WebContext>,
 }
 
@@ -104,7 +104,7 @@ impl ApplicationHandler for App {
 impl App {
     fn new() -> std::result::Result<Self, Box<dyn std::error::Error>> {
         // Create a command handler
-        let handler = Arc::new(WxpCommandHandler::new());
+        let handler = Rc::new(WxpCommandHandler::new());
 
         // Register commands
         handler.register_async("greet", |ctx| {

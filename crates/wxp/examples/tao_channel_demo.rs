@@ -3,6 +3,7 @@
 use log::info;
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use tao::{
@@ -96,7 +97,7 @@ fn main() -> wry::Result<()> {
         .unwrap();
 
     // Create a command handler
-    let handler = Arc::new(WxpCommandHandler::new());
+    let handler = Rc::new(WxpCommandHandler::new());
 
     // Register commands
     let proxy_clone = proxy.clone();

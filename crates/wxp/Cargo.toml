@@ -10,7 +10,7 @@ readme = "README.md"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-wry = { git = "https://github.com/novonotes/wry.git", rev = "8a54991c590dec567cfb4ab73b11a365d740616c", features = ["devtools"] }
+wry = { git = "https://github.com/novonotes/wry.git", rev = "cfca5aa99219ef374643d786ec94af0100d880d5", features = ["devtools"] }
 async-trait = "0.1"
 once_cell = "1"
 uuid = { version = "1", features = ["v4"] }

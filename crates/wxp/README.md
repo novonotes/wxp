@@ -31,8 +31,7 @@ Simplifies WebView construction and management.
 use std::sync::Arc;
 use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
-    .build_wry_context();
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
 let handler = Arc::new(WxpCommandHandler::new());
 
 let webview = WxpWebViewBuilder::new(&mut web_context)

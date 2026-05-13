@@ -27,6 +27,7 @@ pub use web_context::WebContext;
 pub use webview_ref::WebViewRef;
 pub use wxp_channel::Channel;
 pub use wxp_command::{CommandContext, WxpCommandHandler};
+pub use wxp_webview::error::{Error, Result};
 
 // --------------------------------------------------
 // Re-export types from wry
@@ -34,10 +35,11 @@ pub use wxp_command::{CommandContext, WxpCommandHandler};
 
 pub use wry::Rect;
 pub mod dpi {
-    pub use wry::dpi::{LogicalPosition, LogicalSize, Size};
+    pub use wry::dpi::{LogicalPosition, LogicalSize, Position, Size};
 }
 pub mod raw_window_handle {
     pub use wry::raw_window_handle::{
-        AppKitWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle, XcbWindowHandle,
+        AppKitWindowHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
+        XcbWindowHandle,
     };
 }

@@ -1,4 +1,5 @@
 use crate::initialization::get_initialization_scripts;
+use crate::web_context::WebContext;
 use crate::webview_ref::WebViewRef;
 use crate::wxp_channel::internals::setup_channel_protocol;
 use crate::wxp_command::{WxpCommandHandler, setup::setup_invoke_handler_internal};
@@ -7,7 +8,6 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use wry::raw_window_handle;
 use wry::{WebViewBuilder, http::Response};
 use zip::ZipArchive;
 use zip::result::ZipError;
@@ -35,9 +35,9 @@ use zip::result::ZipError;
 /// ```no_run
 /// use wxp::{WxpWebViewBuilder, WxpCommandHandler, WebContext};
 /// use std::sync::Arc;
-/// # fn example(window: &impl wry::raw_window_handle::HasWindowHandle) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn example(window: &impl wxp::raw_window_handle::HasWindowHandle) -> Result<(), Box<dyn std::error::Error>> {
 ///
-/// let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin")).build_wry_context();
+/// let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
 /// let handler = Arc::new(WxpCommandHandler::new());
 /// let webview = WxpWebViewBuilder::new(&mut web_context)
 ///     .with_command_handler(handler)
@@ -56,14 +56,13 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `web_context` - Mutable reference to a wry WebContext.
-    ///                   Create one with `wxp::WebContext::build_wry_context()`.
+    /// * `web_context` - Mutable reference to a wxp WebContext.
     ///                   In a plugin environment, typically use `<system temp>/<plugin name>`.
-    pub fn new(web_context: &'a mut wry::WebContext) -> Self {
+    pub fn new(web_context: &'a mut WebContext) -> Self {
         // In plugin UIs, the first click on an inactive editor should still reach the WebView
         // so controls like knobs can start dragging immediately after window activation.
-        let builder =
-            WebViewBuilder::new_with_web_context(web_context).with_accept_first_mouse(true);
+        let builder = WebViewBuilder::new_with_web_context(web_context.wry_context_mut())
+            .with_accept_first_mouse(true);
         let builder = setup_channel_protocol(builder);
 
         Self {
@@ -336,7 +335,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// For CLAP plugins, pass the GUI size notified by the host.
     /// Use [`wxp_clack::dpi::DpiConverter::create_webview_bounds`] to obtain a DPI-aware Rect.
-    pub fn with_bounds(self, bounds: wry::Rect) -> Self {
+    pub fn with_bounds(self, bounds: crate::Rect) -> Self {
         Self {
             builder: self.builder.with_bounds(bounds),
             command_handler: self.command_handler,
@@ -351,7 +350,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     /// When it is dropped, the WebView content disappears.
     pub fn build_as_child<W>(self, window: &W) -> Result<WebViewRef>
     where
-        W: raw_window_handle::HasWindowHandle,
+        W: crate::raw_window_handle::HasWindowHandle,
     {
         // Apply initialization scripts
         let has_command_handler = self.command_handler.is_some();

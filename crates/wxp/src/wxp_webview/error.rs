@@ -3,7 +3,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("WebView error: {0}")]
-    WebView(#[from] wry::Error),
+    WebView(String),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -12,4 +12,10 @@ pub enum Error {
     PathNotFound(String),
 }
 
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+impl From<wry::Error> for Error {
+    fn from(value: wry::Error) -> Self {
+        Self::WebView(value.to_string())
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

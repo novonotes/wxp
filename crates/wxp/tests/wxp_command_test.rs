@@ -5,10 +5,9 @@ use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use wry::dpi::{Position, Size};
 use wxp::Rect;
 use wxp::WebContext;
-use wxp::dpi::{LogicalPosition, LogicalSize};
+use wxp::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use wxp::{WxpCommandHandler, WxpWebViewBuilder};
 
 fn main() {
@@ -96,10 +95,9 @@ fn test_command_basic() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_bounds(Rect {
@@ -188,10 +186,9 @@ fn test_command_error() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_bounds(Rect {

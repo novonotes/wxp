@@ -88,7 +88,7 @@ struct App {
     webview: Option<wxp::WebViewRef>,
     handler: Arc<WxpCommandHandler>,
     event_loop_proxy: winit::event_loop::EventLoopProxy<UserEvent>,
-    _wry_context: Option<wry::WebContext>,
+    _web_context: Option<WebContext>,
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -103,8 +103,7 @@ impl ApplicationHandler<UserEvent> for App {
             let window = event_loop.create_window(window_attrs).unwrap();
 
             // Create the WebView
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
 
             // Set bounds to match the parent window size
             let bounds = Rect {
@@ -112,7 +111,7 @@ impl ApplicationHandler<UserEvent> for App {
                 size: WxpLogicalSize::new(window_width, window_height).into(),
             };
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(self.handler.clone())
                 .with_html(HTML)
                 .with_devtools(true)
@@ -122,7 +121,7 @@ impl ApplicationHandler<UserEvent> for App {
 
             self.window = Some(window);
             self.webview = Some(webview);
-            self._wry_context = Some(wry_context);
+            self._web_context = Some(web_context);
         }
     }
 
@@ -232,7 +231,7 @@ impl App {
             webview: None,
             handler,
             event_loop_proxy,
-            _wry_context: None,
+            _web_context: None,
         })
     }
 }

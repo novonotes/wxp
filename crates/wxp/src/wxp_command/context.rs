@@ -3,7 +3,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Information required to deserialize command arguments
-pub(crate) struct DeserializeContext<'a> {
+#[doc(hidden)]
+pub struct DeserializeContext<'a> {
     /// Command name
     pub(crate) name: &'a str,
     /// Key of the argument to deserialize
@@ -15,7 +16,8 @@ pub(crate) struct DeserializeContext<'a> {
 }
 
 /// Trait for converting command arguments
-pub(crate) trait TryFromDeserializeContext<'de>: Sized {
+#[doc(hidden)]
+pub trait TryFromDeserializeContext<'de>: Sized {
     /// Attempts to convert from a DeserializeContext into Self
     fn try_from(ctx: DeserializeContext<'de>) -> Result<Self, Value>;
 }

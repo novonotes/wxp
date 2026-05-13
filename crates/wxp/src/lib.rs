@@ -28,6 +28,8 @@ pub use builder::WxpWebViewBuilder;
 pub use web_context::WebContext;
 pub use webview_ref::WebViewRef;
 pub use wxp_channel::Channel;
+#[doc(hidden)]
+pub use wxp_command::TryFromDeserializeContext;
 pub use wxp_command::{CommandContext, WxpCommandHandler};
 pub use wxp_webview::error::{Error, Result};
 

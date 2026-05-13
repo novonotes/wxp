@@ -3,6 +3,7 @@
 use log::info;
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use tao::{
@@ -96,7 +97,7 @@ fn main() -> wry::Result<()> {
         .unwrap();
 
     // Create a command handler
-    let handler = Arc::new(WxpCommandHandler::new());
+    let handler = Rc::new(WxpCommandHandler::new());
 
     // Register commands
     let proxy_clone = proxy.clone();
@@ -127,8 +128,7 @@ fn main() -> wry::Result<()> {
     });
 
     // Create the WebView
-    let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
-    let mut wry_context = wxp_context.build_wry_context();
+    let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
 
     // Set bounds to match the parent window size
     let bounds = Rect {
@@ -136,7 +136,7 @@ fn main() -> wry::Result<()> {
         size: WxpLogicalSize::new(window_width, window_height).into(),
     };
 
-    let _webview = WxpWebViewBuilder::new(&mut wry_context)
+    let _webview = WxpWebViewBuilder::new(&mut web_context)
         .with_command_handler(handler)
         .with_html(HTML)
         .with_devtools(true)

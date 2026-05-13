@@ -3,7 +3,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("WebView error: {0}")]
-    WebView(#[from] wry::Error),
+    WebView(String),
 
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
@@ -16,6 +16,12 @@ pub enum Error {
 
     #[error("Invalid channel ID format: {0}")]
     InvalidChannelId(String),
+}
+
+impl From<wry::Error> for Error {
+    fn from(value: wry::Error) -> Self {
+        Self::WebView(value.to_string())
+    }
 }
 
 pub(super) type Result<T> = std::result::Result<T, Error>;

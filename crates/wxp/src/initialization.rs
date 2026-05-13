@@ -70,61 +70,58 @@ const CHANNEL_INIT_SCRIPT: &str = r#"
 
     class Channel {
         constructor(onmessage) {
+            // WKWebView on macOS 11.0.1 (Safari 14.0 equivalent) cannot parse private class
+            // fields (`#field`). Use prototype-compatible properties so the entire bridge
+            // initialization script does not fail on older engines.
+            this._onmessage = onmessage;
+            this._nextMessageIndex = 0;
+            this._pendingMessages = [];
+            this._messageEndIndex = undefined;
+            this._alive = true;
+
             this.id = window.__WXP_INTERNALS__.transformCallback((rawMessage) => {
                 if ('end' in rawMessage && rawMessage.end) {
-                    this.#messageEndIndex = rawMessage.index;
-                    this.#drainPendingMessages();
+                    this._messageEndIndex = rawMessage.index;
+                    this._drainPendingMessages();
                     // Only remove callback if channel is not alive on JS side
-                    if (!this.#alive) {
+                    if (!this._alive) {
                         window.__WXP_INTERNALS__.callbacks.delete(this.id);
                         window.__WXP_INTERNALS__.channels.delete(this.id);
                     }
                 } else if ('message' in rawMessage) {
                     const { message, index } = rawMessage;
 
-                    if (index === this.#nextMessageIndex) {
-                        if (this.#onmessage) {
-                            this.#onmessage(message);
+                    if (index === this._nextMessageIndex) {
+                        if (this._onmessage) {
+                            this._onmessage(message);
                         }
-                        this.#nextMessageIndex += 1;
-                        this.#drainPendingMessages();
+                        this._nextMessageIndex += 1;
+                        this._drainPendingMessages();
                     } else {
-                        this.#pendingMessages[index] = message;
+                        this._pendingMessages[index] = message;
                     }
                 }
             });
-
-            this.#onmessage = onmessage;
-            this.#nextMessageIndex = 0;
-            this.#pendingMessages = [];
-            this.#messageEndIndex = undefined;
-            this.#alive = true;
 
             // Register channel globally
             window.__WXP_INTERNALS__.channels.set(this.id, this);
         }
 
-        #onmessage;
-        #nextMessageIndex;
-        #pendingMessages;
-        #messageEndIndex;
-        #alive;
+        _drainPendingMessages() {
+            while (this._pendingMessages[this._nextMessageIndex] !== undefined) {
+                const message = this._pendingMessages[this._nextMessageIndex];
+                delete this._pendingMessages[this._nextMessageIndex];
 
-        #drainPendingMessages() {
-            while (this.#pendingMessages[this.#nextMessageIndex] !== undefined) {
-                const message = this.#pendingMessages[this.#nextMessageIndex];
-                delete this.#pendingMessages[this.#nextMessageIndex];
-
-                if (this.#onmessage) {
-                    this.#onmessage(message);
+                if (this._onmessage) {
+                    this._onmessage(message);
                 }
-                this.#nextMessageIndex += 1;
+                this._nextMessageIndex += 1;
             }
 
-            if (this.#messageEndIndex !== undefined &&
-                this.#nextMessageIndex >= this.#messageEndIndex) {
+            if (this._messageEndIndex !== undefined &&
+                this._nextMessageIndex >= this._messageEndIndex) {
                 // Only remove callback if channel is not alive on JS side
-                if (!this.#alive) {
+                if (!this._alive) {
                     window.__WXP_INTERNALS__.callbacks.delete(this.id);
                     window.__WXP_INTERNALS__.channels.delete(this.id);
                 }
@@ -132,12 +129,12 @@ const CHANNEL_INIT_SCRIPT: &str = r#"
         }
 
         set onmessage(handler) {
-            this.#onmessage = handler;
+            this._onmessage = handler;
         }
 
         close() {
-            if (this.#alive) {
-                this.#alive = false;
+            if (this._alive) {
+                this._alive = false;
                 window.__WXP_INTERNALS__.callbacks.delete(this.id);
                 window.__WXP_INTERNALS__.channels.delete(this.id);
             }

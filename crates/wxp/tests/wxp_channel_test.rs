@@ -2,13 +2,13 @@ use host_window::create_window;
 use log::error;
 use novonotes_run_loop::{RunLoop, test_harness};
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use wry::dpi::{Position, Size};
 use wxp::Rect;
 use wxp::WebContext;
-use wxp::dpi::{LogicalPosition, LogicalSize};
+use wxp::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use wxp::{WxpCommandHandler, WxpWebViewBuilder};
 
 fn main() {
@@ -69,7 +69,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Channel Error Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let caught = error_caught_clone.clone();
 
             handler.register_async("bad_channel", |_| async move {
@@ -85,10 +85,9 @@ fn test_channel_error() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_devtools(true)
@@ -179,7 +178,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Small JSON Message Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let received = message_received_clone.clone();
 
             handler.register_async("send_small_json", move |ctx| {
@@ -208,10 +207,9 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_devtools(true)
@@ -308,7 +306,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Large Message Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let received = large_message_received_clone.clone();
 
             handler.register_async("send_large", move |ctx| {
@@ -341,10 +339,9 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_devtools(true)
@@ -447,7 +444,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Small Binary Message Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let received = binary_message_received_clone.clone();
 
             handler.register_async("send_binary_small", move |ctx| {
@@ -472,10 +469,9 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_devtools(true)
@@ -578,7 +574,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
             let width = 600.0;
             let height = 400.0;
             let window = create_window("Large Binary Message Test", width, height);
-            let handler = Arc::new(WxpCommandHandler::new());
+            let handler = Rc::new(WxpCommandHandler::new());
             let received = binary_message_received_clone.clone();
 
             handler.register_async("send_binary_large", move |ctx| {
@@ -603,10 +599,9 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
                 .with_html(html)
                 .with_devtools(true)

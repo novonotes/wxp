@@ -4,17 +4,16 @@
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
-> 日本語版: [README_JA.md](./README_JA.md)
+> Japanese: [README_JA.md](./README_JA.md)
 
 ## Quick Start
 
 ```rust
-use std::sync::Arc;
+use std::rc::Rc;
 use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
-    .build_wry_context();
-let handler = Arc::new(WxpCommandHandler::new());
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
+let handler = Rc::new(WxpCommandHandler::new());
 
 // `webview` must be kept alive while the UI is shown (see Caveats below).
 let webview = WxpWebViewBuilder::new(&mut web_context)

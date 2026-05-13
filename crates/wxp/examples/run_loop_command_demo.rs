@@ -3,6 +3,7 @@
 use host_window::{HostWindowHandle, create_window};
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use wxp::WebContext;
@@ -51,7 +52,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     RunLoop::init().unwrap();
 
     // Create a command handler
-    let handler = Arc::new(WxpCommandHandler::new());
+    let handler = Rc::new(WxpCommandHandler::new());
 
     // Register commands
     handler.register_async("greet", |ctx| {
@@ -83,8 +84,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         );
 
         // Create WebView
-        let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
-        let mut wry_context = wxp_context.build_wry_context();
+        let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
 
         // Set bounds to match the parent window size
         let bounds = Rect {
@@ -92,7 +92,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             size: LogicalSize::new(window_width, window_height).into(),
         };
 
-        let webview = WxpWebViewBuilder::new(&mut wry_context)
+        let webview = WxpWebViewBuilder::new(&mut web_context)
             .with_command_handler(handler)
             .with_html(HTML)
             .with_devtools(true)

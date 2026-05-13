@@ -20,7 +20,7 @@ impl<F, R, E> SyncCommandFn<F, R, E> {
 
 impl<F, R, E> SyncCommandFn<F, R, E>
 where
-    F: Fn(CommandContext<'_>) -> Result<R, E> + Send + Sync,
+    F: Fn(CommandContext<'_>) -> Result<R, E>,
 {
     pub(crate) fn name(&self) -> &str {
         &self.name

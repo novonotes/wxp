@@ -3,6 +3,8 @@ use std::cell::RefCell;
 use std::sync::{Arc, Weak};
 use wry::WebView;
 
+use crate::{Rect, Result};
+
 /// Struct for managing a reference to a WebView
 ///
 /// [`WebViewRef`] is Send + Sync, but must only be accessed from the MainThread.
@@ -35,18 +37,21 @@ impl WebViewRef {
     }
 
     /// Evaluates JavaScript
-    pub fn evaluate_script(&self, script: &str) -> Result<(), wry::Error> {
-        self.inner.borrow().evaluate_script(script)
+    pub fn evaluate_script(&self, script: &str) -> Result<()> {
+        self.inner.borrow().evaluate_script(script)?;
+        Ok(())
     }
 
     /// Sets the bounds of the WebView
-    pub fn set_bounds(&self, bounds: wry::Rect) -> Result<(), wry::Error> {
-        self.inner.borrow().set_bounds(bounds)
+    pub fn set_bounds(&self, bounds: Rect) -> Result<()> {
+        self.inner.borrow().set_bounds(bounds)?;
+        Ok(())
     }
 
     /// Moves keyboard focus away from the WebView back to its parent.
-    pub fn focus_parent(&self) -> Result<(), wry::Error> {
-        self.inner.borrow().focus_parent()
+    pub fn focus_parent(&self) -> Result<()> {
+        self.inner.borrow().focus_parent()?;
+        Ok(())
     }
 
     /// Returns a weak reference (for internal use)

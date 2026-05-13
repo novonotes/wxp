@@ -28,12 +28,11 @@ Before using wxp, keep the following constraints in mind:
 Simplifies WebView construction and management.
 
 ```rust
-use std::sync::Arc;
+use std::rc::Rc;
 use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
 
-let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"))
-    .build_wry_context();
-let handler = Arc::new(WxpCommandHandler::new());
+let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
+let handler = Rc::new(WxpCommandHandler::new());
 
 let webview = WxpWebViewBuilder::new(&mut web_context)
     .with_command_handler(handler)

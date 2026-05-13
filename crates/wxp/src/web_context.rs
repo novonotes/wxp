@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-/// WebContext configuration for wxp
+/// WebContext for wxp.
 ///
 /// Specifies the directory for storing WebView user data
 /// (cache, cookies, local storage, etc.).
@@ -15,9 +15,10 @@ use std::path::PathBuf;
 /// let data_dir = std::env::temp_dir().join("my-plugin");
 /// let web_context = WebContext::new(data_dir);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WebContext {
     data_directory: PathBuf,
+    wry_context: wry::WebContext,
 }
 
 impl WebContext {
@@ -27,22 +28,20 @@ impl WebContext {
     ///
     /// * `data_directory` - Directory for storing WebView user data (required)
     pub fn new(data_directory: impl Into<PathBuf>) -> Self {
+        let data_directory = data_directory.into();
+        let wry_context = wry::WebContext::new(Some(data_directory.clone()));
         Self {
-            data_directory: data_directory.into(),
+            data_directory,
+            wry_context,
         }
     }
 
-    /// Returns the path to the data directory
+    /// Returns the path to the data directory.
     pub fn data_directory(&self) -> &PathBuf {
         &self.data_directory
     }
 
-    /// Creates a `wry::WebContext` from this configuration.
-    ///
-    /// The returned `wry::WebContext` **must be kept alive for the entire lifetime of the WebView**.
-    /// After passing it to [`WxpWebViewBuilder::new`](crate::WxpWebViewBuilder::new),
-    /// make sure the caller holds the variable so it is not dropped.
-    pub fn build_wry_context(&self) -> wry::WebContext {
-        wry::WebContext::new(Some(self.data_directory.clone()))
+    pub(crate) fn wry_context_mut(&mut self) -> &mut wry::WebContext {
+        &mut self.wry_context
     }
 }

@@ -28,8 +28,7 @@ fn test_webview_basic() -> Result<(), String> {
             let window_height = 400.0;
             let window = create_window("WebView Test", window_width, window_height);
 
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
 
             // Set bounds to match the parent window size
             let bounds = Rect {
@@ -37,7 +36,7 @@ fn test_webview_basic() -> Result<(), String> {
                 size: LogicalSize::new(window_width, window_height).into(),
             };
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_html(r#"<h1>WebView Test</h1>"#)
                 .with_devtools(true)
                 .with_bounds(bounds)

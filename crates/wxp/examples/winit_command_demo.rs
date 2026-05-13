@@ -2,7 +2,7 @@
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
-use std::sync::Arc;
+use std::rc::Rc;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -48,8 +48,8 @@ const HTML: &str = r#"<!DOCTYPE html>
 struct App {
     window: Option<Window>,
     webview: Option<wxp::WebViewRef>,
-    handler: Arc<WxpCommandHandler>,
-    _wry_context: Option<wry::WebContext>,
+    handler: Rc<WxpCommandHandler>,
+    _web_context: Option<WebContext>,
 }
 
 impl ApplicationHandler for App {
@@ -64,8 +64,7 @@ impl ApplicationHandler for App {
             let window = event_loop.create_window(window_attrs).unwrap();
 
             // Create the WebView
-            let wxp_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
-            let mut wry_context = wxp_context.build_wry_context();
+            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-example"));
 
             // Set bounds to match the parent window size
             let bounds = Rect {
@@ -73,7 +72,7 @@ impl ApplicationHandler for App {
                 size: WxpLogicalSize::new(window_width, window_height).into(),
             };
 
-            let webview = WxpWebViewBuilder::new(&mut wry_context)
+            let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(self.handler.clone())
                 .with_html(HTML)
                 .with_devtools(true)
@@ -83,7 +82,7 @@ impl ApplicationHandler for App {
 
             self.window = Some(window);
             self.webview = Some(webview);
-            self._wry_context = Some(wry_context);
+            self._web_context = Some(web_context);
         }
     }
 
@@ -105,7 +104,7 @@ impl ApplicationHandler for App {
 impl App {
     fn new() -> std::result::Result<Self, Box<dyn std::error::Error>> {
         // Create a command handler
-        let handler = Arc::new(WxpCommandHandler::new());
+        let handler = Rc::new(WxpCommandHandler::new());
 
         // Register commands
         handler.register_async("greet", |ctx| {
@@ -123,7 +122,7 @@ impl App {
             window: None,
             webview: None,
             handler,
-            _wry_context: None,
+            _web_context: None,
         })
     }
 }

@@ -4,7 +4,7 @@
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
-> 日本語版: [README_JA.md](./README_JA.md)
+> Japanese: [README_JA.md](./README_JA.md)
 
 ## Quick Start
 

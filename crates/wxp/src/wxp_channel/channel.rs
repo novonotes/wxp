@@ -70,7 +70,7 @@ impl Channel {
         }
     }
 
-    /// このチャネルの ID を返す。JavaScript 側の `Channel` オブジェクトの ID と対応します。
+    /// Returns this channel's ID, matching the JavaScript-side `Channel` object ID.
     pub fn id(&self) -> u32 {
         self.id
     }

@@ -70,9 +70,9 @@ const CHANNEL_INIT_SCRIPT: &str = r#"
 
     class Channel {
         constructor(onmessage) {
-            // macOS 11.0.1 の WKWebView (Safari 14.0 相当) は private class fields
-            // (`#field`) を parse できない。初期化 script 全体が失敗すると
-            // WebView bridge 自体が使えなくなるため、古い prototype 互換の property に寄せる。
+            // WKWebView on macOS 11.0.1 (Safari 14.0 equivalent) cannot parse private class
+            // fields (`#field`). Use prototype-compatible properties so the entire bridge
+            // initialization script does not fail on older engines.
             this._onmessage = onmessage;
             this._nextMessageIndex = 0;
             this._pendingMessages = [];

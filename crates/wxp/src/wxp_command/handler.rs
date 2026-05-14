@@ -3,7 +3,7 @@ use super::command::SyncCommandFn;
 use super::context::CommandContext;
 use super::invoke::{InvokeRequest, InvokeResponse};
 use super::unified::DynUnifiedCommand;
-use crate::webview_ref::WebViewRef;
+use crate::webview_ref::{WebViewRef, WebViewWeakRef};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
@@ -15,13 +15,14 @@ use std::future::Future;
 /// [`WxpWebViewBuilder::with_command_handler`](crate::WxpWebViewBuilder::with_command_handler).
 ///
 /// Can be shared across multiple locations as `Rc<WxpCommandHandler>`.
-/// Internally holds a strong reference to [`WebViewRef`](crate::WebViewRef),
-/// so the WebView stays alive as long as `WxpCommandHandler` is alive.
+/// Internally holds a weak reference to [`WebViewRef`](crate::WebViewRef),
+/// so the handler can access the WebView during command execution without
+/// extending the WebView lifetime.
 ///
 /// Command closures are executed on the run loop thread.
 pub struct WxpCommandHandler {
     commands: RefCell<HashMap<String, DynUnifiedCommand>>,
-    webview: RefCell<Option<WebViewRef>>,
+    webview: RefCell<Option<WebViewWeakRef>>,
 }
 
 impl WxpCommandHandler {
@@ -35,7 +36,10 @@ impl WxpCommandHandler {
 
     /// Sets the WebView
     pub(crate) fn set_webview(&self, webview: WebViewRef) {
-        *self.webview.borrow_mut() = Some(webview);
+        // The builder wires command handling into the WebView, but ownership stays with the
+        // caller that keeps the returned WebViewRef. Holding a strong ref here would make the
+        // handler a hidden lifetime owner and delay native WebView teardown.
+        *self.webview.borrow_mut() = Some(webview.downgrade());
     }
 
     /// Registers a synchronous command
@@ -68,9 +72,14 @@ impl WxpCommandHandler {
     /// Processes an invoke request
     async fn invoke(&self, request: InvokeRequest) -> InvokeResponse {
         let command = self.commands.borrow().get(&request.cmd).cloned();
-        let webview = match self.webview.borrow().clone() {
+        let webview = match self
+            .webview
+            .borrow()
+            .as_ref()
+            .and_then(WebViewWeakRef::upgrade)
+        {
             Some(wv) => wv,
-            None => return InvokeResponse::error("WebView not set".to_string()),
+            None => return InvokeResponse::error("WebView no longer exists".to_string()),
         };
 
         match command {
@@ -94,8 +103,15 @@ impl WxpCommandHandler {
             let error_id = request.error;
             let response = self.invoke(request).await;
 
-            // If the WebView is set, execute JavaScript
-            if let Some(webview) = self.webview.borrow().as_ref() {
+            // The WebView may have been destroyed while an async command was running. In that
+            // case there is no page left to receive the response, so dropping it is the only
+            // meaningful behavior.
+            if let Some(webview) = self
+                .webview
+                .borrow()
+                .as_ref()
+                .and_then(WebViewWeakRef::upgrade)
+            {
                 let js = match (response.value, response.error) {
                     (Some(value), None) => format!(
                         "window.__WXP_INTERNALS__.invoke[{}]({})",

@@ -3638,7 +3638,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4157,7 +4157,7 @@ checksum = "1e9df38ee2d2c3c5948ea468a8406ff0db0b29ae1ffde1bcf20ef305bcc95c51"
 [[package]]
 name = "wry"
 version = "0.52.1"
-source = "git+https://github.com/novonotes/wry.git?rev=cfca5aad39c8cad7a0faabf168adb9af4c4c1923#cfca5aad39c8cad7a0faabf168adb9af4c4c1923"
+source = "git+https://github.com/novonotes/wry.git?rev=62f8d4869363ae3e82b4dcbdb19881b356797e03#62f8d4869363ae3e82b4dcbdb19881b356797e03"
 dependencies = [
  "base64",
  "block2 0.6.2",

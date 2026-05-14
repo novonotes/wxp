@@ -55,7 +55,7 @@ wxp_clack = { git = "https://github.com/novonotes/wxp.git", rev = "<latest commi
 
 npm installation:
 ```sh
-npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+npm install https://github.com/novonotes/wxp/releases/download/webview-bridge-v0.1.0-alpha.1/novonotes-webview-bridge-0.1.0-alpha.1.tgz
 ```
 
 ## License

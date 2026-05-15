@@ -25,6 +25,10 @@ pub struct WxpWebView {
 /// [`Error::WebViewClosed`]. A successful post means the operation was accepted for dispatch, not
 /// that the native WebView operation has completed. The native WebView stays private so callers can
 /// keep this handle across threads without gaining direct access to the UI-thread-only object.
+///
+/// The API is intentionally post/enqueue based instead of blocking for completion. Plugin hosts can
+/// call plugin code while also waiting on their UI thread, so a send-and-wait WebView API would make
+/// host-driven deadlocks easy to create.
 #[derive(Clone)]
 pub struct WebViewDispatch {
     // Weak ownership keeps this handle Send + Sync without making it a hidden lifetime owner.

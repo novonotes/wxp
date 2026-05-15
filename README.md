@@ -31,9 +31,14 @@ See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough o
 | Path | Description |
 |-----|------|
 | `crates/wxp` | WebView UI foundation (main crate) |
+| `crates/wry` | Embedded upstream-based wry crate with plugin-host lifecycle fixes |
 | `crates/wxp_clack` | Integration utilities for CLAP (clack) and wxp |
 | `crates/host_window` | Dev dependency for wxp. Not intended for external use. |
 | `packages/webview-bridge` | JS/TS IPC bridge (`@novonotes/webview-bridge`) |
+
+`crates/wry` tracks `tauri-apps/wry` but keeps small intent-based patches for audio plug-in hosts,
+where editor creation, parent-window attachment, and focus can happen in a different order than in a
+normal desktop application.
 
 ## Project Status
 

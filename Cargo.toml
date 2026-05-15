@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/host_window",
+    "crates/wry",
     "crates/wxp",
     "crates/wxp_clack",
 ]

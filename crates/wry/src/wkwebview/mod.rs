@@ -670,7 +670,9 @@ r#"Object.defineProperty(window, 'ipc', {
           ns_view.addSubview(&webview);
         } else {
           // inject the webview into the window
-          let ns_window = ns_view.window().unwrap();
+          // Some plug-in hosts construct editor views before the NSView has entered an NSWindow.
+          // Returning an error keeps host lifecycle ordering bugs from becoming process panics.
+          let ns_window = ns_view.window().ok_or(Error::UnsupportedWindowHandle)?;
 
           let parent_view = WryWebViewParent::new(mtm);
 

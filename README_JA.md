@@ -20,8 +20,16 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .build_as_child(&window)?;
 ```
 
+## Caveats
+
+- `WxpWebView` は native WebView の寿命を所有し、作成した run loop thread から動かさない設計です。
+- background thread などから WebView 操作を post したい場合は `WebViewDispatch` を clone します。
+  `WebViewDispatch` は `Send + Sync` ですが WebView の寿命は延ばさず、結果待ちではなく enqueue します。
+- UI を表示している間は `WxpWebView` を保持してください。drop すると native WebView は閉じられ、
+  stale な command/channel work は UI 寿命を延ばさずに無視されます。
+
 詳しい使い方は [crates/wxp の README](./crates/wxp/README.md)、
-プラグイン全体を通した例は [wxp-gain-example](https://github.com/novonotes/wrac-plugin-template) を参照してください。
+プラグイン全体を通した例は [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) を参照してください。
 
 ## このリポジトリの構成
 

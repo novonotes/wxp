@@ -22,6 +22,14 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .build_as_child(&window)?;
 ```
 
+## Caveats
+
+- `WxpWebView` owns the native WebView and must stay on the run loop thread that created it.
+- Clone `WebViewDispatch` when background work needs to post WebView operations. It is `Send + Sync`,
+  but it does not keep the WebView alive and its methods enqueue work instead of waiting for results.
+- Keep `WxpWebView` alive for as long as the UI should exist. Dropping it closes the native WebView,
+  and stale command/channel work is ignored instead of extending the UI lifetime.
+
 See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate
 (including platform support and the main-thread / lifetime caveats), and
 [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.

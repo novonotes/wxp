@@ -11,6 +11,12 @@ use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use wxp::{WxpCommandHandler, WxpWebViewBuilder};
 
+fn test_web_context(name: &str) -> WebContext {
+    // WebView2 user-data directories can outlive a dropped test WebView on Windows. Keeping
+    // profiles unique prevents one integration test binary from aborting another's first WebView.
+    WebContext::new(std::env::temp_dir().join(format!("wxp-test-{}-{}", std::process::id(), name)))
+}
+
 fn main() {
     test_harness::run_gui_tests(vec![
         (
@@ -96,7 +102,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("command-basic");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
@@ -187,7 +193,7 @@ fn test_command_error() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("command-error");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)

@@ -90,10 +90,11 @@ impl Channel {
 
         let json_string = serde_json::to_string(&message)?;
 
+        // Small JSON can be delivered inline without paying the custom-protocol fetch round trip.
         if json_string.len() < MAX_JSON_DIRECT_EXECUTE_THRESHOLD {
             self.execute_callback(&json_string)
         } else {
-            // For large messages, send only the data part via fetch
+            // Large messages avoid embedding the callback envelope into JS source twice.
             let data_json = serde_json::to_string(&message.message)?;
             self.send_large_data(ChannelResponseBody::Json(data_json), current_index)
         }
@@ -105,6 +106,7 @@ impl Channel {
     pub fn send_bytes(&self, data: Vec<u8>) -> Result<()> {
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
 
+        // Small byte buffers are cheaper to inline than to route through the global fetch store.
         if data.len() < MAX_RAW_DIRECT_EXECUTE_THRESHOLD {
             let bytes_as_json_array = serde_json::to_string(&data)?;
             let js = format!(

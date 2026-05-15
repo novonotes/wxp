@@ -34,9 +34,17 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Check Rust formatting
         run: |
-          cargo fmt --manifest-path crates/host_window/Cargo.toml -- --check
-          cargo fmt --manifest-path crates/wxp/Cargo.toml -- --check
-          cargo fmt --manifest-path crates/wxp_clack/Cargo.toml -- --check
+          # Do not use `cargo fmt --all` here. `crates/wry` is an embedded upstream
+          # fork with its own rustfmt policy; formatting it from the wxp workspace
+          # fails on Windows and creates unrelated churn. Keep this list to wxp-owned
+          # crates and update it when adding a new owned Rust package.
+          cargo fmt \
+            --package host_window \
+            --package novonotes_run_loop \
+            --package run_loop_timer \
+            --package wxp \
+            --package wxp_clack \
+            -- --check
       - name: Cargo check
         run: cargo check --workspace --all-targets
       - name: Cargo test lib

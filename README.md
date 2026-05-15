@@ -38,6 +38,8 @@ See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough o
 
 | Path | Description |
 |-----|------|
+| `crates/run_loop` | Platform-independent run loop used by wxp and plugin UI helpers |
+| `crates/run_loop_timer` | Lightweight repeating timer helper built on `novonotes_run_loop` |
 | `crates/wxp` | WebView UI foundation (main crate) |
 | `crates/wry` | Embedded upstream-based wry crate with plugin-host lifecycle fixes |
 | `crates/wxp_clack` | Integration utilities for CLAP (clack) and wxp |
@@ -63,6 +65,7 @@ Example Cargo configuration:
 ```toml
 [dependencies]
 wxp = { git = "https://github.com/novonotes/wxp.git", rev = "<latest commit hash on main branch>" }
+run_loop_timer = { git = "https://github.com/novonotes/wxp.git", package = "run_loop_timer", rev = "<latest commit hash on main branch>" }
 wxp_clack = { git = "https://github.com/novonotes/wxp.git", rev = "<latest commit hash on main branch>" }
 ```
 

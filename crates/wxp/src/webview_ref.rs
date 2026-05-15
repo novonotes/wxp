@@ -15,6 +15,7 @@ use crate::{Error, Rect, Result};
 pub struct WxpWebView {
     inner: Arc<SendWrapper<RefCell<WebView>>>,
     sender: RunLoopSender,
+    // Keep the owner !Send + !Sync so native WebView lifetime never moves away from the UI thread.
     _not_send_sync: PhantomData<Rc<()>>,
 }
 

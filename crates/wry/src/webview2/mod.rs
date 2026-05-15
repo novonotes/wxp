@@ -835,8 +835,8 @@ impl InnerWebView {
       if attributes.focused {
         if let Err(error) = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) {
           // Cubase VST3 child windows have returned E_INVALIDARG here even though WebView2
-          // creation succeeded. Initial focus is best-effort for embedded editors, so do not fail
-          // construction for the child-window case.
+          // creation succeeded. Treating that focus failure as construction failure leaves the
+          // plug-in window blank, while the only lost behavior is best-effort initial focus.
           if !is_child || error.code() != E_INVALIDARG {
             return Err(error.into());
           }

@@ -9,7 +9,7 @@ readme = "../../README.md"
 
 [dependencies]
 clack-extensions = { git = "https://github.com/prokopyl/clack.git", rev = "4541f03", features = ["gui"] }
-wxp = { path = "../wxp" }
+wxp = { workspace = true }
 
 [lints]
 workspace = true

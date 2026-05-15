@@ -10,7 +10,7 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-novonotes_run_loop = { path = "../run_loop" }
+novonotes_run_loop = { workspace = true }
 
 [dev-dependencies]
-serial_test = "3"
+serial_test = { workspace = true }

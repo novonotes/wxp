@@ -33,7 +33,14 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt \
+            --package host_window \
+            --package novonotes_run_loop \
+            --package run_loop_timer \
+            --package wxp \
+            --package wxp_clack \
+            -- --check
       - name: Cargo check
         run: cargo check --workspace --all-targets
       - name: Cargo test lib

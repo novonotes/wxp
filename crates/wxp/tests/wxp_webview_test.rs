@@ -5,6 +5,12 @@ use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize};
 use wxp::{Rect, WxpWebViewBuilder};
 
+fn test_web_context(name: &str) -> WebContext {
+    // Windows WebView2 may keep profile state alive past WebView drop. GUI tests use isolated
+    // profiles so CI failures do not depend on previous test binaries finishing teardown first.
+    WebContext::new(std::env::temp_dir().join(format!("wxp-test-{}-{}", std::process::id(), name)))
+}
+
 fn main() {
     test_harness::run_gui_tests(vec![("basic WebView functionality", test_webview_basic)]);
 }
@@ -16,7 +22,7 @@ fn test_webview_basic() -> Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -28,7 +34,7 @@ fn test_webview_basic() -> Result<(), String> {
             let window_height = 400.0;
             let window = create_window("WebView Test", window_width, window_height);
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("webview-basic");
 
             // Set bounds to match the parent window size
             let bounds = Rect {

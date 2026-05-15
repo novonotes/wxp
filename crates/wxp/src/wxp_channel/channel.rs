@@ -1,16 +1,18 @@
 use super::error::{Error, Result};
-use send_wrapper::SendWrapper;
+use crate::WebViewDispatch;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
-use wry::WebView;
 
 // Channel configuration constants
 pub(crate) const IPC_PAYLOAD_PREFIX: &str = "__CHANNEL__:";
 pub(crate) const CHANNEL_ID_HEADER_NAME: &str = "X-Channel-Data-Id";
 const FETCH_CHANNEL_DATA_COMMAND: &str = "__wxp_channel_fetch_data__";
+
+// Small messages go through evaluate_script to avoid an extra custom-protocol fetch. Larger
+// messages use the fetch path because embedding big JSON strings or raw byte arrays into JS source
+// makes the script expensive to allocate, escape, parse, and enqueue.
 const MAX_JSON_DIRECT_EXECUTE_THRESHOLD: usize = 8192;
 const MAX_RAW_DIRECT_EXECUTE_THRESHOLD: usize = 1024;
 
@@ -36,7 +38,9 @@ pub(crate) enum ChannelResponseBody {
 #[derive(Debug, Clone)]
 pub struct Channel {
     id: u32,
-    webview: Weak<SendWrapper<RefCell<WebView>>>,
+    // Channels can be cloned and used after the command returns. Dispatch lets them post callback
+    // delivery without owning or directly touching the native WebView.
+    webview: WebViewDispatch,
     inner: Arc<WxpChannelInner>,
 }
 
@@ -59,7 +63,7 @@ struct WxpChannelEnd {
 }
 
 impl Channel {
-    pub(crate) fn new(id: u32, webview: Weak<SendWrapper<RefCell<WebView>>>) -> Self {
+    pub(crate) fn new(id: u32, webview: WebViewDispatch) -> Self {
         Self {
             id,
             webview,
@@ -79,7 +83,6 @@ impl Channel {
     ///
     /// On the JS side, the deserialized object is passed as the callback argument of `Channel`.
     pub fn send<T: Serialize>(&self, data: T) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
 
         let message = WxpChannelMessage {
@@ -89,16 +92,13 @@ impl Channel {
 
         let json_string = serde_json::to_string(&message)?;
 
+        // Small JSON can be delivered inline without paying the custom-protocol fetch round trip.
         if json_string.len() < MAX_JSON_DIRECT_EXECUTE_THRESHOLD {
-            self.execute_callback(&webview, &json_string)
+            self.execute_callback(&json_string)
         } else {
-            // For large messages, send only the data part via fetch
+            // Large messages avoid embedding the callback envelope into JS source twice.
             let data_json = serde_json::to_string(&message.message)?;
-            self.send_large_data(
-                &webview,
-                ChannelResponseBody::Json(data_json),
-                current_index,
-            )
+            self.send_large_data(ChannelResponseBody::Json(data_json), current_index)
         }
     }
 
@@ -106,28 +106,23 @@ impl Channel {
     ///
     /// On the JS side, use `message instanceof ArrayBuffer` to identify it.
     pub fn send_bytes(&self, data: Vec<u8>) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
 
+        // Small byte buffers are cheaper to inline than to route through the global fetch store.
         if data.len() < MAX_RAW_DIRECT_EXECUTE_THRESHOLD {
             let bytes_as_json_array = serde_json::to_string(&data)?;
             let js = format!(
                 "window.__WXP_INTERNALS__.runCallback({}, {{ message: new Uint8Array({}).buffer, index: {} }})",
                 self.id, bytes_as_json_array, current_index
             );
-            webview.borrow().evaluate_script(&js)?;
+            self.webview.post_eval_script(js)?;
             Ok(())
         } else {
-            self.send_large_data(&webview, ChannelResponseBody::Raw(data), current_index)
+            self.send_large_data(ChannelResponseBody::Raw(data), current_index)
         }
     }
 
-    fn send_large_data(
-        &self,
-        webview: &Arc<SendWrapper<RefCell<WebView>>>,
-        body: ChannelResponseBody,
-        current_index: u32,
-    ) -> Result<()> {
+    fn send_large_data(&self, body: ChannelResponseBody, current_index: u32) -> Result<()> {
         let data_id = CHANNEL_DATA_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         super::internals::store_channel_data_typed(data_id, body);
@@ -138,7 +133,11 @@ impl Channel {
                 .catch(console.error)"#,
             FETCH_CHANNEL_DATA_COMMAND, CHANNEL_ID_HEADER_NAME, data_id, self.id, current_index
         );
-        webview.borrow().evaluate_script(&js)?;
+        self.webview.post_eval_script_or_else(js, move || {
+            // Large payloads live in a global store until JS fetches them. If the WebView closes
+            // before the fetch can be scheduled or run, there is no receiver left to consume it.
+            super::internals::remove_channel_data(data_id);
+        })?;
         Ok(())
     }
 
@@ -150,25 +149,17 @@ impl Channel {
     pub fn close(self) -> Result<()> {
         self.send_end_message()
     }
-    fn get_webview(&self) -> Result<Arc<SendWrapper<RefCell<WebView>>>> {
-        self.webview.upgrade().ok_or(Error::ChannelClosed)
-    }
 
-    fn execute_callback(
-        &self,
-        webview: &Arc<SendWrapper<RefCell<WebView>>>,
-        json_data: &str,
-    ) -> Result<()> {
+    fn execute_callback(&self, json_data: &str) -> Result<()> {
         let js = format!(
             "window.__WXP_INTERNALS__.runCallback({}, {})",
             self.id, json_data
         );
-        webview.borrow().evaluate_script(&js)?;
+        self.webview.post_eval_script(js)?;
         Ok(())
     }
 
     fn send_end_message(&self) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.load(Ordering::SeqCst);
 
         let end_message = WxpChannelEnd {
@@ -176,12 +167,14 @@ impl Channel {
             index: current_index,
         };
 
-        self.execute_callback(&webview, &serde_json::to_string(&end_message)?)
+        self.execute_callback(&serde_json::to_string(&end_message)?)
     }
 }
 
 impl Drop for Channel {
     fn drop(&mut self) {
+        // Channel drop commonly races with page teardown. Ending the JS callback is useful when the
+        // page is still alive, but closure is not an error the Rust side can act on here.
         let _ = self.send_end_message();
 
         if let Some(ref tx) = self.inner.on_drop_tx {

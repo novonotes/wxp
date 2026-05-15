@@ -86,7 +86,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 
 struct App {
     window: Option<Window>,
-    webview: Option<wxp::WebViewRef>,
+    webview: Option<wxp::WxpWebView>,
     handler: Rc<WxpCommandHandler>,
     event_loop_proxy: winit::event_loop::EventLoopProxy<UserEvent>,
     _web_context: Option<WebContext>,

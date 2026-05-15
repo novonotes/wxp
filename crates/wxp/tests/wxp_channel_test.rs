@@ -11,6 +11,13 @@ use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use wxp::{WxpCommandHandler, WxpWebViewBuilder};
 
+fn test_web_context(name: &str) -> WebContext {
+    // WebView2 can keep a user-data directory alive briefly after a WebView is dropped on
+    // Windows. Per-test profiles avoid cross-test races when Cargo runs GUI test binaries
+    // back-to-back on CI.
+    WebContext::new(std::env::temp_dir().join(format!("wxp-test-{}-{}", std::process::id(), name)))
+}
+
 fn main() {
     test_harness::run_gui_tests(vec![
         (
@@ -42,7 +49,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -85,7 +92,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("channel-error");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
@@ -131,7 +138,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -207,7 +214,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("channel-json-small");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
@@ -253,7 +260,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -339,7 +346,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("channel-json-large");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
@@ -385,7 +392,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -469,7 +476,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("channel-binary-small");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)
@@ -515,7 +522,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -599,7 +606,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
                 async move { Ok::<_, &str>(json!({})) }
             });
 
-            let mut web_context = WebContext::new(std::env::temp_dir().join("wxp-test"));
+            let mut web_context = test_web_context("channel-binary-large");
 
             let webview = WxpWebViewBuilder::new(&mut web_context)
                 .with_command_handler(handler)

@@ -17,11 +17,13 @@ macOS, Windows, and Linux. Primary verification targets are macOS and Windows.
 
 Before using wxp, keep the following constraints in mind:
 
-- **Main-thread only**: constructing and operating a WebView must be done on the main thread.
-  `WebViewRef` is `Send + Sync` so you can store it in structs owned by other threads,
-  but that does **not** mean you can drive the WebView from a background thread.
-- **Hold on to `WebViewRef`**: the WebView is destroyed when the last `WebViewRef` is dropped.
-  Keep at least one reference alive for as long as you want the UI to stay visible.
+- **UI-thread owner**: `WxpWebView` owns the native WebView lifetime and is intentionally
+  `!Send + !Sync`, so it stays on the run loop thread that created it.
+- **Thread-safe dispatch**: clone `WebViewDispatch` when another thread needs to post WebView
+  operations. It does not keep the native WebView alive, and its API enqueues work instead of
+  blocking for completion.
+- **Hold on to `WxpWebView`**: the WebView is destroyed when the owner is dropped. Keep it alive
+  for as long as you want the UI to stay visible.
 
 ## WxpWebViewBuilder
 
@@ -69,14 +71,20 @@ struct Filter {
 handler.register_async("fetch_device_list", |ctx| {
     // Arguments can be any Deserializable type, not just Filter.
     let filter = ctx.arg::<Filter>("filter").unwrap();
+    let webview = ctx.webview().clone();
 
     async move {
         // Execute async processing
         let devices = fetch_devices(&filter).await?;
+        let _ = webview.post_eval_script("window.dispatchEvent(new Event('devices-ready'))");
         Ok(json!({ "devices": devices }))
     }
 });
 ```
+
+`CommandContext::webview()` returns `WebViewDispatch`, not the native WebView owner. Commands and
+channels may outlive the page that created them, so dispatch methods return `WebViewClosed` if the
+`WxpWebView` has already been dropped.
 
 ## Channel
 

@@ -10,11 +10,19 @@ static CHANNEL_DATA_STORE: Lazy<Arc<Mutex<HashMap<u32, ChannelResponseBody>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub(crate) fn store_channel_data_typed(id: u32, data: ChannelResponseBody) {
+    // Large channel payloads are fetched by JS through the custom protocol because they should not
+    // be embedded into evaluate_script source.
     CHANNEL_DATA_STORE.lock().insert(id, data);
 }
 
 pub(crate) fn fetch_channel_data(id: u32) -> Option<ChannelResponseBody> {
+    // Fetch is one-shot: once JS receives the payload, keeping a second copy only leaks memory.
     CHANNEL_DATA_STORE.lock().remove(&id)
+}
+
+pub(crate) fn remove_channel_data(id: u32) {
+    // Used when the WebView closes before the scheduled fetch can consume the payload.
+    CHANNEL_DATA_STORE.lock().remove(&id);
 }
 
 /// Registers the channel protocol

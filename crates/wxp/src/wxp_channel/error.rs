@@ -5,6 +5,9 @@ pub enum Error {
     #[error("WebView error: {0}")]
     WebView(String),
 
+    #[error("WebView is closed")]
+    WebViewClosed,
+
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -21,6 +24,17 @@ pub enum Error {
 impl From<wry::Error> for Error {
     fn from(value: wry::Error) -> Self {
         Self::WebView(value.to_string())
+    }
+}
+
+impl From<crate::Error> for Error {
+    fn from(value: crate::Error) -> Self {
+        match value {
+            // Preserve closure as a typed channel error so senders can distinguish a closed WebView
+            // from native WebView failures or serialization bugs.
+            crate::Error::WebViewClosed => Self::WebViewClosed,
+            other => Self::WebView(other.to_string()),
+        }
     }
 }
 

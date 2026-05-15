@@ -1,4 +1,4 @@
-use crate::webview_ref::WebViewRef;
+use crate::WebViewDispatch;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -11,8 +11,8 @@ pub struct DeserializeContext<'a> {
     pub(crate) key: &'a str,
     /// Argument value (JSON)
     pub(crate) args: &'a serde_json::Value,
-    /// WebView reference
-    pub(crate) webview: WebViewRef,
+    /// Dispatch handle for the WebView that invoked this command.
+    pub(crate) webview: WebViewDispatch,
 }
 
 /// Trait for converting command arguments
@@ -43,13 +43,17 @@ pub struct CommandContext<'a> {
     pub(crate) name: &'a str,
     /// Argument value (JSON)
     pub(crate) args: &'a serde_json::Value,
-    /// WebView reference
-    pub(crate) webview: WebViewRef,
+    /// WebView dispatch handle
+    pub(crate) webview: WebViewDispatch,
 }
 
 impl<'a> CommandContext<'a> {
     /// Creates a new CommandContext
-    pub(crate) fn new(name: &'a str, args: &'a serde_json::Value, webview: WebViewRef) -> Self {
+    pub(crate) fn new(
+        name: &'a str,
+        args: &'a serde_json::Value,
+        webview: WebViewDispatch,
+    ) -> Self {
         Self {
             name,
             args,
@@ -76,8 +80,10 @@ impl<'a> CommandContext<'a> {
         self.args.clone()
     }
 
-    /// Returns a reference to the WebView
-    pub fn webview(&self) -> WebViewRef {
-        self.webview.clone()
+    /// Returns the WebView dispatch handle for the WebView that invoked this command.
+    pub fn webview(&self) -> &WebViewDispatch {
+        // Expose dispatch rather than the owner so commands can post UI work without participating
+        // in native WebView lifetime management.
+        &self.webview
     }
 }

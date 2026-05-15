@@ -44,7 +44,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 // Struct to hold resources
 struct Resources {
     _window: HostWindowHandle,
-    _webview: wxp::WebViewRef,
+    _webview: wxp::WxpWebView,
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {

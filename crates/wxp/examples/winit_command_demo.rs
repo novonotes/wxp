@@ -47,7 +47,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 
 struct App {
     window: Option<Window>,
-    webview: Option<wxp::WebViewRef>,
+    webview: Option<wxp::WxpWebView>,
     handler: Rc<WxpCommandHandler>,
     _web_context: Option<WebContext>,
 }

@@ -85,17 +85,52 @@ impl WebViewDispatch {
         self.post_webview_op("focus_parent", move |webview| webview.focus_parent())
     }
 
+    pub(crate) fn is_alive(&self) -> bool {
+        self.inner.strong_count() > 0
+    }
+
+    pub(crate) fn post_eval_script_or_else<C>(
+        &self,
+        script: impl Into<String>,
+        on_webview_closed: C,
+    ) -> Result<()>
+    where
+        C: FnOnce() + Send + 'static,
+    {
+        let script = script.into();
+        self.post_webview_op_or_else(
+            "evaluate_script",
+            move |webview| webview.evaluate_script(&script),
+            on_webview_closed,
+        )
+    }
+
     fn post_webview_op<F>(&self, operation: &'static str, op: F) -> Result<()>
     where
         F: FnOnce(&WebView) -> std::result::Result<(), wry::Error> + Send + 'static,
     {
-        if self.inner.strong_count() == 0 {
+        self.post_webview_op_or_else(operation, op, || {})
+    }
+
+    fn post_webview_op_or_else<F, C>(
+        &self,
+        operation: &'static str,
+        op: F,
+        on_webview_closed: C,
+    ) -> Result<()>
+    where
+        F: FnOnce(&WebView) -> std::result::Result<(), wry::Error> + Send + 'static,
+        C: FnOnce() + Send + 'static,
+    {
+        if !self.is_alive() {
+            on_webview_closed();
             return Err(Error::WebViewClosed);
         }
 
         let inner = self.inner.clone();
         let run = move || {
             let Some(webview) = inner.upgrade() else {
+                on_webview_closed();
                 return;
             };
             if let Err(error) = op(&webview.borrow()) {

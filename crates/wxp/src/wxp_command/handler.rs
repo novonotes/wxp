@@ -72,6 +72,10 @@ impl WxpCommandHandler {
             None => return InvokeResponse::error("WebView no longer exists".to_string()),
         };
 
+        if !webview.is_alive() {
+            return InvokeResponse::error("WebView no longer exists".to_string());
+        }
+
         match command {
             Some(command) => {
                 // Create a CommandContext

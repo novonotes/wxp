@@ -125,7 +125,9 @@ impl Channel {
                 .catch(console.error)"#,
             FETCH_CHANNEL_DATA_COMMAND, CHANNEL_ID_HEADER_NAME, data_id, self.id, current_index
         );
-        self.webview.post_eval_script(js)?;
+        self.webview.post_eval_script_or_else(js, move || {
+            super::internals::remove_channel_data(data_id);
+        })?;
         Ok(())
     }
 

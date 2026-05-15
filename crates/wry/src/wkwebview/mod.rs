@@ -389,9 +389,14 @@ impl InnerWebView {
 
       #[cfg(target_os = "macos")]
       let webview = {
-        let window = ns_view.window().unwrap();
-
-        let scale_factor = window.backingScaleFactor();
+        // AU/clap-wrapper hosts can ask for a child WebView before the parent NSView has been
+        // attached to an NSWindow. Logic/Cubase-style embedded editors should not panic during
+        // that transient lifecycle state; a logical default keeps initial bounds usable until the
+        // host attaches the view and sends real bounds.
+        let scale_factor = ns_view
+          .window()
+          .map(|window| window.backingScaleFactor())
+          .unwrap_or(1.0);
         let (x, y) = attributes
           .bounds
           .map(|b| b.position.to_logical::<f64>(scale_factor))
@@ -603,8 +608,7 @@ impl InnerWebView {
 
       // ns window is required for the print operation
       #[cfg(target_os = "macos")]
-      {
-        let ns_window = ns_view.window().unwrap();
+      if let Some(ns_window) = ns_view.window() {
         // <https://developer.apple.com/documentation/appkit/nswindow/titlebarseparatorstyle>
         // Available: macOS 11+
         let can_set_titlebar_style =
@@ -884,13 +888,14 @@ r#"Object.defineProperty(window, 'ipc', {
         print_operation.setCanSpawnSeparateThread(true);
 
         // Launch the modal
-        let window = self.webview.window().unwrap();
-        print_operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
-          &window,
-          None,
-          None,
-          std::ptr::null_mut(),
-        )
+        if let Some(window) = self.webview.window() {
+          print_operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
+            &window,
+            None,
+            None,
+            std::ptr::null_mut(),
+          )
+        }
       }
     }
 
@@ -992,14 +997,17 @@ r#"Object.defineProperty(window, 'ipc', {
   pub fn bounds(&self) -> crate::Result<Rect> {
     #[allow(unused_unsafe)]
     unsafe {
-      let parent = self.webview.superview().unwrap();
-      let parent_frame = parent.frame();
       let webview_frame = self.webview.frame();
+      let parent_height = self
+        .webview
+        .superview()
+        .map(|parent| parent.frame().size.height)
+        .unwrap_or(webview_frame.size.height);
 
       Ok(Rect {
         position: LogicalPosition::new(
           webview_frame.origin.x,
-          parent_frame.size.height - webview_frame.origin.y - webview_frame.size.height,
+          parent_height - webview_frame.origin.y - webview_frame.size.height,
         )
         .into(),
         size: LogicalSize::new(webview_frame.size.width, webview_frame.size.height).into(),
@@ -1010,18 +1018,24 @@ r#"Object.defineProperty(window, 'ipc', {
   pub fn set_bounds(&self, #[allow(unused)] bounds: Rect) -> crate::Result<()> {
     #[cfg(target_os = "macos")]
     if self.is_child {
-      let window = self.webview.window().unwrap();
-      let scale_factor = window.backingScaleFactor();
+      // Resize can race with NSWindow attachment in AU hosts. Defer the frame update when there is
+      // no superview yet; hosts will issue another bounds update once the editor is installed.
+      let scale_factor = self
+        .webview
+        .window()
+        .map(|window| window.backingScaleFactor())
+        .unwrap_or(1.0);
       let (x, y) = bounds.position.to_logical::<f64>(scale_factor).into();
       let (width, height) = bounds.size.to_logical::<i32>(scale_factor).into();
 
       unsafe {
-        let parent_view = self.webview.superview().unwrap();
-        let frame = CGRect {
-          origin: window_position(&parent_view, x, y, height),
-          size: CGSize::new(width, height),
-        };
-        self.webview.setFrame(frame);
+        if let Some(parent_view) = self.webview.superview() {
+          let frame = CGRect {
+            origin: window_position(&parent_view, x, y, height),
+            size: CGSize::new(width, height),
+          };
+          self.webview.setFrame(frame);
+        }
       }
     }
 
@@ -1036,8 +1050,10 @@ r#"Object.defineProperty(window, 'ipc', {
   pub fn focus(&self) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-      let window = self.webview.window().unwrap();
-      window.makeFirstResponder(Some(&self.webview));
+      // Focus is best-effort before AppKit has connected the embedded view to a window.
+      if let Some(window) = self.webview.window() {
+        window.makeFirstResponder(Some(&self.webview));
+      }
     }
     Ok(())
   }
@@ -1269,8 +1285,9 @@ r#"Object.defineProperty(window, 'ipc', {
   #[cfg(target_os = "macos")]
   pub(crate) fn reparent(&self, window: *mut NSWindow) -> crate::Result<()> {
     unsafe {
-      let content_view = (*window).contentView().unwrap();
-      content_view.addSubview(&self.webview);
+      if let Some(content_view) = (*window).contentView() {
+        content_view.addSubview(&self.webview);
+      }
     }
 
     Ok(())
@@ -1279,7 +1296,9 @@ r#"Object.defineProperty(window, 'ipc', {
   #[cfg(target_os = "macos")]
   pub(crate) fn set_traffic_light_inset(&self, position: dpi::Position) -> crate::Result<()> {
     if let Some(parent_view) = &self.parent_view {
-      parent_view.set_traffic_light_inset(&self.webview.window().unwrap(), position);
+      if let Some(window) = self.webview.window() {
+        parent_view.set_traffic_light_inset(&window, position);
+      }
     }
 
     Ok(())

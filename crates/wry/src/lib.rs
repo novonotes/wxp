@@ -2220,14 +2220,17 @@ pub enum MemoryUsageLevel {
 /// Additional methods on `WebView` that are specific to Windows.
 #[cfg(target_os = "windows")]
 pub trait WebViewExtWindows {
-  /// Returns the WebView2 controller.
-  fn controller(&self) -> ICoreWebView2Controller;
+  /// Returns the WebView2 controller if WebView2 has finished creating it.
+  ///
+  /// Embedded plug-in hosts can crash when WebView2 creation is forced through a nested message
+  /// pump, so wxp's embedded wry lets creation finish asynchronously.
+  fn controller(&self) -> Option<ICoreWebView2Controller>;
 
   /// Webview environment.
-  fn environment(&self) -> ICoreWebView2Environment;
+  fn environment(&self) -> Option<ICoreWebView2Environment>;
 
   /// Webview instance.
-  fn webview(&self) -> ICoreWebView2;
+  fn webview(&self) -> Option<ICoreWebView2>;
 
   /// Changes the webview2 theme.
   ///
@@ -2258,16 +2261,16 @@ pub trait WebViewExtWindows {
 
 #[cfg(target_os = "windows")]
 impl WebViewExtWindows for WebView {
-  fn controller(&self) -> ICoreWebView2Controller {
-    self.webview.controller.clone()
+  fn controller(&self) -> Option<ICoreWebView2Controller> {
+    self.webview.controller()
   }
 
-  fn environment(&self) -> ICoreWebView2Environment {
-    self.webview.env.clone()
+  fn environment(&self) -> Option<ICoreWebView2Environment> {
+    self.webview.environment()
   }
 
-  fn webview(&self) -> ICoreWebView2 {
-    self.webview.webview.clone()
+  fn webview(&self) -> Option<ICoreWebView2> {
+    self.webview.webview()
   }
 
   fn set_theme(&self, theme: Theme) -> Result<()> {

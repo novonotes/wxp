@@ -6,7 +6,6 @@ members = [
     "crates/run_loop_timer",
     "crates/wry",
     "crates/wxp",
-    "crates/wxp_clack",
 ]
 
 [workspace.lints.rust]

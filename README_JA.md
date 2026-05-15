@@ -39,7 +39,6 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 | `crates/run_loop_timer` | `novonotes_run_loop` 上で動く軽量な繰り返し timer helper |
 | `crates/wxp` | WebView UI 基盤（メインクレート） |
 | `crates/wry` | upstream ベースの同梱 wry crate。プラグイン host lifecycle 向け修正を含みます。 |
-| `crates/wxp_clack` | CLAP（clack）と wxp の統合ユーティリティ |
 | `crates/host_window` | wxp の dev-dependency。外部利用は想定されていません。 |
 | `packages/webview-bridge` | JS/TS 側 IPC ブリッジ（`@novonotes/webview-bridge`） |
 
@@ -63,7 +62,6 @@ cargo の設定例:
 [dependencies]
 wxp = { git = "https://github.com/novonotes/wxp.git", rev = "<main ブランチの最新コミットハッシュ>" }
 run_loop_timer = { git = "https://github.com/novonotes/wxp.git", package = "run_loop_timer", rev = "<main ブランチの最新コミットハッシュ>" }
-wxp_clack = { git = "https://github.com/novonotes/wxp.git", rev = "<main ブランチの最新コミットハッシュ>" }
 ```
 
 npm のインストール方法:

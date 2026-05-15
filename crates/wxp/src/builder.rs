@@ -364,8 +364,9 @@ impl<'a> WxpWebViewBuilder<'a> {
         let webview = WxpWebView::new(webview)?;
         let dispatch = webview.dispatch();
 
-        // Set the WebView on the command handler
         if let Some(handler) = self.command_handler {
+            // The handler gets a non-owning dispatch handle so command routing follows this WebView
+            // without making the handler a hidden lifetime owner.
             handler.set_webview(dispatch);
         }
 

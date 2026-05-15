@@ -13,6 +13,8 @@ use crate::{Error, Rect, Result};
 /// `WxpWebView` owns the native WebView lifetime and is intentionally `!Send + !Sync`.
 /// Cloneable, cross-thread operations are exposed through [`WebViewDispatch`].
 pub struct WxpWebView {
+    // The native WebView still lives behind SendWrapper because WebViewDispatch must be able to
+    // carry a weak handle across threads. Direct access remains confined to this module.
     inner: Arc<SendWrapper<RefCell<WebView>>>,
     sender: RunLoopSender,
     // Keep the owner !Send + !Sync so native WebView lifetime never moves away from the UI thread.
@@ -56,6 +58,8 @@ impl std::fmt::Debug for WebViewDispatch {
 impl WxpWebView {
     /// Creates a new WebView owner.
     pub(crate) fn new(webview: WebView) -> Result<Self> {
+        // WebViewDispatch posts back to the current RunLoop, so creating an owner without a
+        // registered RunLoop would produce handles that cannot safely marshal UI work.
         RunLoop::try_current().map_err(|_| Error::RunLoopNotInitialized)?;
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
@@ -67,6 +71,7 @@ impl WxpWebView {
     /// Returns a thread-safe dispatch handle for this WebView.
     pub fn dispatch(&self) -> WebViewDispatch {
         WebViewDispatch {
+            // Dispatch handles intentionally do not prolong the native WebView lifetime.
             inner: Arc::downgrade(&self.inner),
             sender: self.sender.clone(),
         }
@@ -98,6 +103,8 @@ impl WebViewDispatch {
     }
 
     pub(crate) fn is_alive(&self) -> bool {
+        // This is a gate for stale commands, not a lifetime reservation; posted work must still
+        // tolerate the owner disappearing before the run loop executes it.
         self.inner.strong_count() > 0
     }
 
@@ -135,6 +142,8 @@ impl WebViewDispatch {
         C: FnOnce() + Send + 'static,
     {
         if !self.is_alive() {
+            // Run cleanup synchronously when the owner is already gone, so callers do not leave
+            // side data behind for a post that will never be queued.
             on_webview_closed();
             return Err(Error::WebViewClosed);
         }
@@ -153,6 +162,8 @@ impl WebViewDispatch {
         };
 
         if self.sender.is_same_thread() {
+            // Running inline preserves same-thread WebView error reporting and avoids queueing work
+            // behind the command currently servicing the WebView.
             run();
         } else {
             self.sender.send(run);

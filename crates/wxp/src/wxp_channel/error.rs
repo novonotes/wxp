@@ -30,6 +30,8 @@ impl From<wry::Error> for Error {
 impl From<crate::Error> for Error {
     fn from(value: crate::Error) -> Self {
         match value {
+            // Preserve closure as a typed channel error so senders can distinguish a closed WebView
+            // from native WebView failures or serialization bugs.
             crate::Error::WebViewClosed => Self::WebViewClosed,
             other => Self::WebView(other.to_string()),
         }

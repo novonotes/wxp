@@ -20,6 +20,8 @@ use std::future::Future;
 /// Command closures are executed on the run loop thread.
 pub struct WxpCommandHandler {
     commands: RefCell<HashMap<String, DynUnifiedCommand>>,
+    // The handler is often kept next to application state. Holding only dispatch avoids turning the
+    // command table into a hidden owner that keeps a closed WebView alive.
     webview: RefCell<Option<WebViewDispatch>>,
 }
 
@@ -116,6 +118,9 @@ impl WxpCommandHandler {
                     ),
                     _ => return,
                 };
+                // A response is best-effort: the command already ran, and a closed page has no
+                // receiver left. post_eval_script reports immediate closure, but there is nothing
+                // useful to propagate back to JavaScript at this layer.
                 let _ = webview.post_eval_script(js);
             }
         }

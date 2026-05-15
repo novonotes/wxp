@@ -11,7 +11,7 @@ pub struct DeserializeContext<'a> {
     pub(crate) key: &'a str,
     /// Argument value (JSON)
     pub(crate) args: &'a serde_json::Value,
-    /// WebView dispatch handle
+    /// Dispatch handle for the WebView that invoked this command.
     pub(crate) webview: WebViewDispatch,
 }
 
@@ -82,6 +82,8 @@ impl<'a> CommandContext<'a> {
 
     /// Returns the WebView dispatch handle for the WebView that invoked this command.
     pub fn webview(&self) -> &WebViewDispatch {
+        // Expose dispatch rather than the owner so commands can post UI work without participating
+        // in native WebView lifetime management.
         &self.webview
     }
 }

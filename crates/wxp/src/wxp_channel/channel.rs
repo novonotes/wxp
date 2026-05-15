@@ -38,6 +38,8 @@ pub(crate) enum ChannelResponseBody {
 #[derive(Debug, Clone)]
 pub struct Channel {
     id: u32,
+    // Channels can be cloned and used after the command returns. Dispatch lets them post callback
+    // delivery without owning or directly touching the native WebView.
     webview: WebViewDispatch,
     inner: Arc<WxpChannelInner>,
 }
@@ -171,6 +173,8 @@ impl Channel {
 
 impl Drop for Channel {
     fn drop(&mut self) {
+        // Channel drop commonly races with page teardown. Ending the JS callback is useful when the
+        // page is still alive, but closure is not an error the Rust side can act on here.
         let _ = self.send_end_message();
 
         if let Some(ref tx) = self.inner.on_drop_tx {

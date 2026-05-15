@@ -29,6 +29,8 @@ impl<'de> TryFromDeserializeContext<'de> for Channel {
 
         let id = parse_channel_id(&channel_id)
             .map_err(|e| Value::String(format!("Failed to parse channel ID: {}", e)))?;
+        // Bind the Rust Channel to the WebView that supplied the JS Channel token. The dispatch
+        // handle stays non-owning, so extracting a Channel argument does not extend page lifetime.
         Ok(Channel::new(id, cmd.webview))
     }
 }

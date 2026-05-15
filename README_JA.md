@@ -28,9 +28,14 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 | パス | 内容 |
 |-----|------|
 | `crates/wxp` | WebView UI 基盤（メインクレート） |
+| `crates/wry` | upstream ベースの同梱 wry crate。プラグイン host lifecycle 向け修正を含みます。 |
 | `crates/wxp_clack` | CLAP（clack）と wxp の統合ユーティリティ |
 | `crates/host_window` | wxp の dev-dependency。外部利用は想定されていません。 |
 | `packages/webview-bridge` | JS/TS 側 IPC ブリッジ（`@novonotes/webview-bridge`） |
+
+`crates/wry` は `tauri-apps/wry` を追従しつつ、通常のデスクトップアプリとは異なる
+オーディオプラグイン host の editor 作成・親 window 接続・focus 順序に対応するための
+意図ベースの小さな patch を保持します。
 
 ## プロジェクトのステータス
 

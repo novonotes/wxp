@@ -1,5 +1,3 @@
-workspace = {}
-
 [package]
 name = "wry"
 version = "0.55.1"

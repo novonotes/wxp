@@ -1,0 +1,16 @@
+[package]
+name = "run_loop_timer"
+version = "0.1.0"
+edition = "2024"
+authors = ["NovoNotes"]
+description = "RunLoop timer helper for wxp-based plugin UIs"
+license = "MIT"
+repository = "https://github.com/novonotes/wxp"
+readme = "README.md"
+publish = false
+
+[dependencies]
+novonotes_run_loop = { path = "../run_loop" }
+
+[dev-dependencies]
+serial_test = "3"

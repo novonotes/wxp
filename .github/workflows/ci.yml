@@ -35,6 +35,8 @@ jobs:
       - name: Check Rust formatting
         run: |
           cargo fmt --manifest-path crates/host_window/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/run_loop/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/run_loop_timer/Cargo.toml -- --check
           cargo fmt --manifest-path crates/wxp/Cargo.toml -- --check
           cargo fmt --manifest-path crates/wxp_clack/Cargo.toml -- --check
       - name: Cargo check

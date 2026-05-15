@@ -27,9 +27,15 @@ pub struct WxpWebView {
 /// keep this handle across threads without gaining direct access to the UI-thread-only object.
 #[derive(Clone)]
 pub struct WebViewDispatch {
+    // Weak ownership keeps this handle Send + Sync without making it a hidden lifetime owner.
     inner: Weak<SendWrapper<RefCell<WebView>>>,
     sender: RunLoopSender,
 }
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<WebViewDispatch>;
+};
 
 impl std::fmt::Debug for WxpWebView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

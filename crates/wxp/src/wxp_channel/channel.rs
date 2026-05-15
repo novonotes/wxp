@@ -9,6 +9,10 @@ use tokio::sync::mpsc;
 pub(crate) const IPC_PAYLOAD_PREFIX: &str = "__CHANNEL__:";
 pub(crate) const CHANNEL_ID_HEADER_NAME: &str = "X-Channel-Data-Id";
 const FETCH_CHANNEL_DATA_COMMAND: &str = "__wxp_channel_fetch_data__";
+
+// Small messages go through evaluate_script to avoid an extra custom-protocol fetch. Larger
+// messages use the fetch path because embedding big JSON strings or raw byte arrays into JS source
+// makes the script expensive to allocate, escape, parse, and enqueue.
 const MAX_JSON_DIRECT_EXECUTE_THRESHOLD: usize = 8192;
 const MAX_RAW_DIRECT_EXECUTE_THRESHOLD: usize = 1024;
 

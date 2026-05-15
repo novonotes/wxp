@@ -13,7 +13,7 @@
 mod builder;
 mod initialization;
 mod web_context;
-mod webview_ref;
+mod webview;
 mod wxp_channel;
 mod wxp_command;
 mod wxp_webview;
@@ -24,7 +24,7 @@ mod wxp_webview;
 
 pub use builder::WxpWebViewBuilder;
 pub use web_context::WebContext;
-pub use webview_ref::{WebViewDispatch, WxpWebView};
+pub use webview::{WebViewDispatch, WxpWebView};
 pub use wxp_channel::Channel;
 #[doc(hidden)]
 pub use wxp_command::TryFromDeserializeContext;

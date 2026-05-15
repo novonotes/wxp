@@ -1,6 +1,6 @@
 use crate::initialization::get_initialization_scripts;
 use crate::web_context::WebContext;
-use crate::webview_ref::WxpWebView;
+use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
 use crate::wxp_command::{WxpCommandHandler, setup::setup_invoke_handler_internal};
 use crate::wxp_webview::error::{Error, Result};

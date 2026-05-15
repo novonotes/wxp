@@ -16,7 +16,7 @@ fn test_webview_basic() -> Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));

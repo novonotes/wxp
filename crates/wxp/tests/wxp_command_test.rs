@@ -30,7 +30,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -141,7 +141,7 @@ fn test_command_error() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));

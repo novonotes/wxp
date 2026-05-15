@@ -42,7 +42,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -131,7 +131,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -253,7 +253,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -385,7 +385,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));
@@ -515,7 +515,7 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
-        _webview: wxp::WebViewRef,
+        _webview: wxp::WxpWebView,
     }
 
     let resources = Arc::new(Mutex::new(None));

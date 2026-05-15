@@ -126,6 +126,8 @@ impl Channel {
             FETCH_CHANNEL_DATA_COMMAND, CHANNEL_ID_HEADER_NAME, data_id, self.id, current_index
         );
         self.webview.post_eval_script_or_else(js, move || {
+            // Large payloads live in a global store until JS fetches them. If the WebView closes
+            // before the fetch can be scheduled or run, there is no receiver left to consume it.
             super::internals::remove_channel_data(data_id);
         })?;
         Ok(())

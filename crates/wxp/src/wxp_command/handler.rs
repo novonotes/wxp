@@ -72,13 +72,14 @@ impl WxpCommandHandler {
             None => return InvokeResponse::error("WebView no longer exists".to_string()),
         };
 
+        // A queued IPC can outlive the WebView that sent it. Do not run user commands after the
+        // owner is gone, even if the command does not touch the WebView itself.
         if !webview.is_alive() {
             return InvokeResponse::error("WebView no longer exists".to_string());
         }
 
         match command {
             Some(command) => {
-                // Create a CommandContext
                 let ctx = CommandContext::new(&request.cmd, &request.inner.args, webview);
 
                 match command.execute(ctx).await {

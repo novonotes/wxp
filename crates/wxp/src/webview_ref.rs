@@ -22,7 +22,8 @@ pub struct WxpWebView {
 ///
 /// This handle does not keep the WebView alive. If the owner has been dropped, post methods return
 /// [`Error::WebViewClosed`]. A successful post means the operation was accepted for dispatch, not
-/// that the native WebView operation has completed.
+/// that the native WebView operation has completed. The native WebView stays private so callers can
+/// keep this handle across threads without gaining direct access to the UI-thread-only object.
 #[derive(Clone)]
 pub struct WebViewDispatch {
     inner: Weak<SendWrapper<RefCell<WebView>>>,
@@ -130,6 +131,8 @@ impl WebViewDispatch {
         let inner = self.inner.clone();
         let run = move || {
             let Some(webview) = inner.upgrade() else {
+                // The owner can be dropped after a cross-thread post was accepted but before the
+                // run loop executes it. Let callers clean up side data for that abandoned post.
                 on_webview_closed();
                 return;
             };

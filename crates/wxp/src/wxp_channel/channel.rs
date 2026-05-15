@@ -1,11 +1,9 @@
 use super::error::{Error, Result};
-use send_wrapper::SendWrapper;
+use crate::WebViewDispatch;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
-use wry::WebView;
 
 // Channel configuration constants
 pub(crate) const IPC_PAYLOAD_PREFIX: &str = "__CHANNEL__:";
@@ -36,7 +34,7 @@ pub(crate) enum ChannelResponseBody {
 #[derive(Debug, Clone)]
 pub struct Channel {
     id: u32,
-    webview: Weak<SendWrapper<RefCell<WebView>>>,
+    webview: WebViewDispatch,
     inner: Arc<WxpChannelInner>,
 }
 
@@ -59,7 +57,7 @@ struct WxpChannelEnd {
 }
 
 impl Channel {
-    pub(crate) fn new(id: u32, webview: Weak<SendWrapper<RefCell<WebView>>>) -> Self {
+    pub(crate) fn new(id: u32, webview: WebViewDispatch) -> Self {
         Self {
             id,
             webview,
@@ -79,7 +77,6 @@ impl Channel {
     ///
     /// On the JS side, the deserialized object is passed as the callback argument of `Channel`.
     pub fn send<T: Serialize>(&self, data: T) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
 
         let message = WxpChannelMessage {
@@ -90,15 +87,11 @@ impl Channel {
         let json_string = serde_json::to_string(&message)?;
 
         if json_string.len() < MAX_JSON_DIRECT_EXECUTE_THRESHOLD {
-            self.execute_callback(&webview, &json_string)
+            self.execute_callback(&json_string)
         } else {
             // For large messages, send only the data part via fetch
             let data_json = serde_json::to_string(&message.message)?;
-            self.send_large_data(
-                &webview,
-                ChannelResponseBody::Json(data_json),
-                current_index,
-            )
+            self.send_large_data(ChannelResponseBody::Json(data_json), current_index)
         }
     }
 
@@ -106,7 +99,6 @@ impl Channel {
     ///
     /// On the JS side, use `message instanceof ArrayBuffer` to identify it.
     pub fn send_bytes(&self, data: Vec<u8>) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.fetch_add(1, Ordering::SeqCst);
 
         if data.len() < MAX_RAW_DIRECT_EXECUTE_THRESHOLD {
@@ -115,19 +107,14 @@ impl Channel {
                 "window.__WXP_INTERNALS__.runCallback({}, {{ message: new Uint8Array({}).buffer, index: {} }})",
                 self.id, bytes_as_json_array, current_index
             );
-            webview.borrow().evaluate_script(&js)?;
+            self.webview.post_eval_script(js)?;
             Ok(())
         } else {
-            self.send_large_data(&webview, ChannelResponseBody::Raw(data), current_index)
+            self.send_large_data(ChannelResponseBody::Raw(data), current_index)
         }
     }
 
-    fn send_large_data(
-        &self,
-        webview: &Arc<SendWrapper<RefCell<WebView>>>,
-        body: ChannelResponseBody,
-        current_index: u32,
-    ) -> Result<()> {
+    fn send_large_data(&self, body: ChannelResponseBody, current_index: u32) -> Result<()> {
         let data_id = CHANNEL_DATA_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         super::internals::store_channel_data_typed(data_id, body);
@@ -138,7 +125,7 @@ impl Channel {
                 .catch(console.error)"#,
             FETCH_CHANNEL_DATA_COMMAND, CHANNEL_ID_HEADER_NAME, data_id, self.id, current_index
         );
-        webview.borrow().evaluate_script(&js)?;
+        self.webview.post_eval_script(js)?;
         Ok(())
     }
 
@@ -150,25 +137,17 @@ impl Channel {
     pub fn close(self) -> Result<()> {
         self.send_end_message()
     }
-    fn get_webview(&self) -> Result<Arc<SendWrapper<RefCell<WebView>>>> {
-        self.webview.upgrade().ok_or(Error::ChannelClosed)
-    }
 
-    fn execute_callback(
-        &self,
-        webview: &Arc<SendWrapper<RefCell<WebView>>>,
-        json_data: &str,
-    ) -> Result<()> {
+    fn execute_callback(&self, json_data: &str) -> Result<()> {
         let js = format!(
             "window.__WXP_INTERNALS__.runCallback({}, {})",
             self.id, json_data
         );
-        webview.borrow().evaluate_script(&js)?;
+        self.webview.post_eval_script(js)?;
         Ok(())
     }
 
     fn send_end_message(&self) -> Result<()> {
-        let webview = self.get_webview()?;
         let current_index = self.inner.current_index.load(Ordering::SeqCst);
 
         let end_message = WxpChannelEnd {
@@ -176,7 +155,7 @@ impl Channel {
             index: current_index,
         };
 
-        self.execute_callback(&webview, &serde_json::to_string(&end_message)?)
+        self.execute_callback(&serde_json::to_string(&end_message)?)
     }
 }
 

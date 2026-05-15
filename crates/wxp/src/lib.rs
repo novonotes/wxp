@@ -6,11 +6,9 @@
 //!
 //! ## Caveats
 //!
-//! - WebViews must be created and operated on the main thread. [`WebViewRef`] is `Send + Sync`
-//!   so it can be stored in data structures owned by other threads, not so it can be operated
-//!   from those threads.
-//! - The WebView is destroyed when every [`WebViewRef`] is dropped. Keep at least one reference
-//!   alive while the UI should remain visible.
+//! - WebViews must be created and destroyed on the run loop thread.
+//! - [`WxpWebView`] owns the native WebView lifetime and is intentionally not `Send`/`Sync`.
+//! - [`WebViewDispatch`] is the cloneable, thread-safe handle for posting WebView operations.
 
 mod builder;
 mod initialization;
@@ -26,7 +24,7 @@ mod wxp_webview;
 
 pub use builder::WxpWebViewBuilder;
 pub use web_context::WebContext;
-pub use webview_ref::WebViewRef;
+pub use webview_ref::{WebViewDispatch, WxpWebView};
 pub use wxp_channel::Channel;
 #[doc(hidden)]
 pub use wxp_command::TryFromDeserializeContext;

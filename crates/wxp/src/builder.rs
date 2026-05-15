@@ -1,6 +1,6 @@
 use crate::initialization::get_initialization_scripts;
 use crate::web_context::WebContext;
-use crate::webview_ref::WebViewRef;
+use crate::webview_ref::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
 use crate::wxp_command::{WxpCommandHandler, setup::setup_invoke_handler_internal};
 use crate::wxp_webview::error::{Error, Result};
@@ -324,7 +324,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     /// Sets the initial visibility of the WebView.
     ///
     /// Specifying `false` creates the WebView in a hidden state. To show it later,
-    /// operate via [`WebViewRef`].
+    /// operate via [`WebViewDispatch`](crate::WebViewDispatch).
     pub fn with_visible(self, visible: bool) -> Self {
         Self {
             builder: self.builder.with_visible(visible),
@@ -347,9 +347,9 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// # Lifetime Management
     ///
-    /// The returned `WebViewRef` must be kept alive.
+    /// The returned `WxpWebView` must be kept alive.
     /// When it is dropped, the WebView content disappears.
-    pub fn build_as_child<W>(self, window: &W) -> Result<WebViewRef>
+    pub fn build_as_child<W>(self, window: &W) -> Result<WxpWebView>
     where
         W: crate::raw_window_handle::HasWindowHandle,
     {
@@ -361,13 +361,14 @@ impl<'a> WxpWebViewBuilder<'a> {
             .with_initialization_script(&initialization_script);
 
         let webview = builder.build_as_child(window)?;
-        let webview_ref = WebViewRef::new(webview);
+        let webview = WxpWebView::new(webview)?;
+        let dispatch = webview.dispatch();
 
         // Set the WebView on the command handler
         if let Some(handler) = self.command_handler {
-            handler.set_webview(webview_ref.clone());
+            handler.set_webview(dispatch);
         }
 
-        Ok(webview_ref)
+        Ok(webview)
     }
 }

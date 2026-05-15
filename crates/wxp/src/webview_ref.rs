@@ -1,96 +1,114 @@
+use novonotes_run_loop::{RunLoop, RunLoopSender};
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
+use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::{Arc, Weak};
 use wry::WebView;
 
-use crate::{Rect, Result};
+use crate::{Error, Rect, Result};
 
-/// Struct for managing a reference to a WebView
+/// UI-thread owner of a native WebView.
 ///
-/// [`WebViewRef`] is Send + Sync, but must only be accessed from the MainThread.
-/// The reason for making it Send + Sync is to allow it to be held as a member
-/// variable in structs that are temporarily moved to an audio thread,
-/// such as audio plugin instances.
-///
-/// Lifetime management:
-/// When all [`WebViewRef`] instances are dropped, the WebView is also destroyed
-/// and the content in the window will no longer be displayed.
-/// To keep the WebView visible, at least one [`WebViewRef`] must be held somewhere.
-///
-#[derive(Clone)]
-pub struct WebViewRef {
+/// `WxpWebView` owns the native WebView lifetime and is intentionally `!Send + !Sync`.
+/// Cloneable, cross-thread operations are exposed through [`WebViewDispatch`].
+pub struct WxpWebView {
     inner: Arc<SendWrapper<RefCell<WebView>>>,
+    sender: RunLoopSender,
+    _not_send_sync: PhantomData<Rc<()>>,
 }
 
-/// Weak reference to a WebView.
+/// Thread-safe handle for posting operations to a [`WxpWebView`].
 ///
-/// Use this when a component needs temporary access to a WebView without
-/// participating in its lifetime ownership. Command routing is one such case:
-/// the runtime that embeds the WebView should own the lifetime, while handlers
-/// only need to touch it while a command is actively being processed.
+/// This handle does not keep the WebView alive. If the owner has been dropped, post methods return
+/// [`Error::WebViewClosed`]. A successful post means the operation was accepted for dispatch, not
+/// that the native WebView operation has completed.
 #[derive(Clone)]
-pub struct WebViewWeakRef {
+pub struct WebViewDispatch {
     inner: Weak<SendWrapper<RefCell<WebView>>>,
+    sender: RunLoopSender,
 }
 
-impl std::fmt::Debug for WebViewRef {
+impl std::fmt::Debug for WxpWebView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WebViewRef").finish()
+        f.debug_struct("WxpWebView").finish()
     }
 }
 
-impl WebViewRef {
-    /// Creates a new WebViewRef
-    pub(crate) fn new(webview: WebView) -> Self {
-        Self {
+impl std::fmt::Debug for WebViewDispatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebViewDispatch").finish()
+    }
+}
+
+impl WxpWebView {
+    /// Creates a new WebView owner.
+    pub(crate) fn new(webview: WebView) -> Result<Self> {
+        RunLoop::try_current().map_err(|_| Error::RunLoopNotInitialized)?;
+        Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
-        }
+            sender: RunLoop::sender(),
+            _not_send_sync: PhantomData,
+        })
     }
 
-    /// Evaluates JavaScript
-    pub fn evaluate_script(&self, script: &str) -> Result<()> {
-        self.inner.borrow().evaluate_script(script)?;
-        Ok(())
-    }
-
-    /// Sets the bounds of the WebView
-    pub fn set_bounds(&self, bounds: Rect) -> Result<()> {
-        self.inner.borrow().set_bounds(bounds)?;
-        Ok(())
-    }
-
-    /// Sets whether the WebView is visible.
-    ///
-    /// This is intentionally separate from dropping the last [`WebViewRef`].
-    /// Hosts such as audio plugin wrappers can hide/show an embedded view many
-    /// times within one GUI session, and destroying the WebView for every hide
-    /// loses browser state and complicates parent-window ownership.
-    pub fn set_visible(&self, visible: bool) -> Result<()> {
-        self.inner.borrow().set_visible(visible)?;
-        Ok(())
-    }
-
-    /// Moves keyboard focus away from the WebView back to its parent.
-    pub fn focus_parent(&self) -> Result<()> {
-        self.inner.borrow().focus_parent()?;
-        Ok(())
-    }
-
-    /// Returns a weak reference.
-    pub fn downgrade(&self) -> WebViewWeakRef {
-        WebViewWeakRef {
+    /// Returns a thread-safe dispatch handle for this WebView.
+    pub fn dispatch(&self) -> WebViewDispatch {
+        WebViewDispatch {
             inner: Arc::downgrade(&self.inner),
+            sender: self.sender.clone(),
         }
     }
 }
 
-impl WebViewWeakRef {
-    /// Attempts to upgrade the weak reference to a strong [`WebViewRef`].
-    pub fn upgrade(&self) -> Option<WebViewRef> {
-        self.inner.upgrade().map(|inner| WebViewRef { inner })
+impl WebViewDispatch {
+    /// Posts JavaScript evaluation to the WebView's run loop.
+    pub fn post_eval_script(&self, script: impl Into<String>) -> Result<()> {
+        let script = script.into();
+        self.post_webview_op("evaluate_script", move |webview| {
+            webview.evaluate_script(&script)
+        })
     }
 
-    pub(crate) fn into_inner(self) -> Weak<SendWrapper<RefCell<WebView>>> {
-        self.inner
+    /// Posts a bounds update to the WebView's run loop.
+    pub fn post_set_bounds(&self, bounds: Rect) -> Result<()> {
+        self.post_webview_op("set_bounds", move |webview| webview.set_bounds(bounds))
+    }
+
+    /// Posts a visibility update to the WebView's run loop.
+    pub fn post_set_visible(&self, visible: bool) -> Result<()> {
+        self.post_webview_op("set_visible", move |webview| webview.set_visible(visible))
+    }
+
+    /// Posts a request to move focus back to the parent window.
+    pub fn post_focus_parent(&self) -> Result<()> {
+        self.post_webview_op("focus_parent", move |webview| webview.focus_parent())
+    }
+
+    fn post_webview_op<F>(&self, operation: &'static str, op: F) -> Result<()>
+    where
+        F: FnOnce(&WebView) -> std::result::Result<(), wry::Error> + Send + 'static,
+    {
+        if self.inner.strong_count() == 0 {
+            return Err(Error::WebViewClosed);
+        }
+
+        let inner = self.inner.clone();
+        let run = move || {
+            let Some(webview) = inner.upgrade() else {
+                return;
+            };
+            if let Err(error) = op(&webview.borrow()) {
+                log::error!("wxp WebView {operation} failed: {error}");
+            }
+        };
+
+        if self.sender.is_same_thread() {
+            run();
+        } else {
+            self.sender.send(run);
+        }
+
+        Ok(())
     }
 }

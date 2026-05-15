@@ -334,8 +334,8 @@ impl<'a> WxpWebViewBuilder<'a> {
 
     /// Sets the initial size and position of the WebView.
     ///
-    /// For CLAP plugins, pass the GUI size notified by the host.
-    /// Use [`wxp_clack::dpi::DpiConverter::create_webview_bounds`] to obtain a DPI-aware Rect.
+    /// Host or wrapper integrations should convert their native GUI size into a DPI-aware
+    /// [`Rect`](crate::Rect) before passing it here.
     pub fn with_bounds(self, bounds: crate::Rect) -> Self {
         Self {
             builder: self.builder.with_bounds(bounds),

@@ -432,25 +432,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clack-common"
-version = "0.1.0"
-source = "git+https://github.com/prokopyl/clack.git?rev=4541f03#4541f03792635dfdc6be9441a01b786e9b4ccf18"
-dependencies = [
- "bitflags 2.11.0",
- "clap-sys",
-]
-
-[[package]]
-name = "clack-extensions"
-version = "0.1.0"
-source = "git+https://github.com/prokopyl/clack.git?rev=4541f03#4541f03792635dfdc6be9441a01b786e9b4ccf18"
-dependencies = [
- "bitflags 2.11.0",
- "clack-common",
- "clap-sys",
-]
-
-[[package]]
 name = "clap"
 version = "4.5.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -458,12 +439,6 @@ checksum = "52fa72306bb30daf11bc97773431628e5b4916e97aaa74b7d3f625d4d495da02"
 dependencies = [
  "clap_builder",
 ]
-
-[[package]]
-name = "clap-sys"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a76abbdb2907f6fd97fb6bc0b7be96b77d328f2dd9669d1075cc03369ed22154"
 
 [[package]]
 name = "clap_builder"
@@ -5073,14 +5048,6 @@ dependencies = [
  "winit",
  "wry",
  "zip",
-]
-
-[[package]]
-name = "wxp_clack"
-version = "0.1.0-alpha.1"
-dependencies = [
- "clack-extensions",
- "wxp",
 ]
 
 [[package]]

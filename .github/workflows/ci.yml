@@ -43,7 +43,6 @@ jobs:
             --package novonotes_run_loop \
             --package run_loop_timer \
             --package wxp \
-            --package wxp_clack \
             -- --check
       - name: Cargo check
         run: cargo check --workspace --all-targets

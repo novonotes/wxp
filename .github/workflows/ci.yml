@@ -34,6 +34,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Check Rust formatting
         run: |
+          # Do not use `cargo fmt --all` here. `crates/wry` is an embedded upstream
+          # fork with its own rustfmt policy; formatting it from the wxp workspace
+          # fails on Windows and creates unrelated churn. Keep this list to wxp-owned
+          # crates and update it when adding a new owned Rust package.
           cargo fmt \
             --package host_window \
             --package novonotes_run_loop \

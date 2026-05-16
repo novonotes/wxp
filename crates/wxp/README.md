@@ -1,7 +1,7 @@
 # wxp
 
 wxp (WebView X Plugin) is a WebView foundation for audio plugin development.
-Built on wry, it provides Tauri-like IPC features and simplifies building plugin UIs.
+Built on wry, it provides WXP IPC features and simplifies building plugin UIs.
 
 ## Key Features
 
@@ -44,7 +44,7 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 ```
 ## Command
 
-An API similar to Tauri's `invoke` and `command`. Provides command-based bidirectional communication.
+The WXP `invoke` and command API provides request/response communication from JavaScript to Rust.
 
 ### Async Commands
 
@@ -88,7 +88,7 @@ channels may outlive the page that created them, so dispatch methods return `Web
 
 ## Channel
 
-An API similar to Tauri's Channel API. Enables real-time data streaming from Rust to the WebView.
+The WXP Channel API enables real-time data streaming from Rust to the WebView.
 
 ### Basic Usage
 
@@ -139,4 +139,4 @@ const channel = new Channel((message) => {
 });
 ```
 
-This implementation follows the same pattern as Tauri — use `instanceof ArrayBuffer` to distinguish binary data.
+Use `instanceof ArrayBuffer` to distinguish binary data from JSON messages.

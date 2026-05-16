@@ -1,4 +1,4 @@
-//! Tauri-compatible command API layer.
+//! WXP command API layer.
 //!
 //! Registers and executes commands that accept `invoke()` calls from JavaScript.
 

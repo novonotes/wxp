@@ -5,11 +5,11 @@ It exposes `invoke` and `Channel` for communicating with the Rust side of a wxp 
 
 ## Installation
 
-The package is not yet published to npm. Install it from the tarball distributed via
-GitHub Releases:
+This package is private to the wxp repository and is not published to npm.
+Use it from this repository workspace or from an internal tarball when needed.
 
 ```sh
-npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+npm install /path/to/wxp/packages/webview-bridge
 ```
 
 ## Usage
@@ -19,7 +19,7 @@ For detailed usage of `invoke` and `Channel` including matching Rust-side code, 
 
 ## Building the package (for maintainers)
 
-If you need to produce a tarball yourself (for example, to cut a new release):
+If you need to produce an internal tarball:
 
 ```sh
 npm install

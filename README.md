@@ -2,7 +2,7 @@
 
 `wxp` is a WebView-based foundation for audio plugin UIs.
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
-It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
+It provides WXP IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
 > 日本語: [README_JA.md](./README_JA.md)
 
@@ -58,7 +58,7 @@ expect breaking changes between alpha releases.
 ## Installation
 
 - The Rust crate is not published to crates.io. Use it with a `git` + `rev` pin.
-- `@novonotes/webview-bridge` has not been published to npm yet. It is distributed as a tarball via GitHub Releases.
+- `@novonotes/webview-bridge` is a private package for WXP WebView frontends. Use it from this repository workspace or from an internal tarball.
 
 Example Cargo configuration:
 ```toml
@@ -67,9 +67,9 @@ wxp = { git = "https://github.com/novonotes/wxp.git", rev = "<latest commit hash
 run_loop_timer = { git = "https://github.com/novonotes/wxp.git", package = "run_loop_timer", rev = "<latest commit hash on main branch>" }
 ```
 
-npm installation:
+npm installation from a local checkout:
 ```sh
-npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+npm install /path/to/wxp/packages/webview-bridge
 ```
 
 ## License

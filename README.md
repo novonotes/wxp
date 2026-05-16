@@ -4,7 +4,7 @@
 It lets you write plugin GUIs in HTML / CSS / TypeScript and run them on a WebView powered by [wry](https://github.com/tauri-apps/wry).
 It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional communication between Rust and JavaScript.
 
-> Japanese: [README_JA.md](./README_JA.md)
+> 日本語: [README_JA.md](./README_JA.md)
 
 ## Quick Start
 
@@ -69,7 +69,7 @@ run_loop_timer = { git = "https://github.com/novonotes/wxp.git", package = "run_
 
 npm installation:
 ```sh
-npm install https://github.com/novonotes/wxp/releases/download/webview-bridge-v0.1.0-alpha.1/novonotes-webview-bridge-0.1.0-alpha.1.tgz
+npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
 ```
 
 ## License

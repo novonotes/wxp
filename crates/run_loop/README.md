@@ -3,7 +3,7 @@
 A platform-independent run loop interface for Rust.
 A fork of [irondash_run_loop](https://github.com/irondash/irondash/tree/main/run_loop) with enhanced safety and error handling for DLL environments.
 
-> 日本語版: [README_JA.md](./README_JA.md)
+> 日本語: [README_JA.md](./README_JA.md)
 
 ## Purpose
 

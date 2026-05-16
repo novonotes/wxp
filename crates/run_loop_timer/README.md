@@ -1,32 +1,34 @@
 # run_loop_timer
 
-`novonotes_run_loop` 上で繰り返し処理を実行する小さな timer crate です。
+A small timer crate for running repeating callbacks on `novonotes_run_loop`.
 
-callback は run loop thread 上で実行され、`Send` を要求しません。native GUI や WebView のように、特定の thread からしか操作できない object の定期更新に使用できます。
+Callbacks run on the run loop thread and do not require `Send`, making it easy to periodically
+update objects that can only be accessed from a specific thread, such as native GUI widgets or
+WebView channels.
 
 ```rust
 use run_loop_timer::Timer;
 use std::time::Duration;
 
 let timer = Timer::new(Duration::from_millis(100), || {
-    // run loop thread 上で実行される
+    // Runs on the run loop thread
 });
 timer.start();
 timer.stop();
 ```
 
-async callback も利用できます。
+Async callbacks are also supported.
 
 ```rust
 let timer = Timer::new_async(Duration::from_millis(100), || async {
-    // RunLoop::current().spawn(...) で実行される
+    // Spawned via RunLoop::current().spawn(...)
 });
 timer.start();
 ```
 
-## 前提
+## Prerequisites
 
-- `RunLoop::init()` 済みの thread 上で作成、開始、停止、破棄する
-- drop 時に次回の schedule は cancel される
-- 実行中の async task は timer 停止後も継続する
-- タイミング精度は platform と run loop 負荷に依存する
+- Create, start, stop, and drop the timer on a thread where `RunLoop::init()` has been called.
+- When dropped, the next scheduled tick is cancelled.
+- An async task that has already been spawned continues running even after the timer is stopped.
+- Timing precision depends on the platform and run loop load.

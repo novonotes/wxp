@@ -1,7 +1,6 @@
 {
 	"name": "@novonotes/webview-bridge",
 	"version": "0.1.0-alpha.1",
-	"private": true,
 	"description": "WXP WebView IPC bridge",
 	"main": "dist/index.js",
 	"module": "dist/index.mjs",

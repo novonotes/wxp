@@ -1,4 +1,9 @@
-// greet command demo - winit version (using CommandContext)
+//! `invoke()` command demo hosted inside a **winit** application.
+//!
+//! Same wxp usage as the other demos; winit owns the main thread via its
+//! `ApplicationHandler`. `RunLoop::init()` is still needed for wxp command
+//! dispatch, and the WebView is created in `resumed` because winit only allows
+//! window creation once the event loop is active.
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
@@ -45,6 +50,9 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
+// All three are `Option` because they only exist after `resumed`. They must be
+// stored on `App` (not locals) so they outlive that callback: dropping
+// `WxpWebView` closes the WebView, and `WebContext` must outlive it.
 struct App {
     window: Option<Window>,
     webview: Option<wxp::WxpWebView>,
@@ -54,8 +62,9 @@ struct App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // `resumed` can fire more than once; only build the window/WebView the
+        // first time.
         if self.window.is_none() {
-            // Create a winit window
             let window_width = 600.0;
             let window_height = 400.0;
             let window_attrs = WindowAttributes::default()

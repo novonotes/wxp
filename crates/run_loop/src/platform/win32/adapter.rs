@@ -68,6 +68,10 @@ unsafe extern "system" fn wnd_proc(
     l_param: LPARAM,
 ) -> LRESULT {
     unsafe {
+        // Win32 wnd procs are plain C functions, so the per-window Rust handler
+        // is carried through GWLP_USERDATA. WM_NCCREATE is the first message a
+        // window receives, so stash the `EventBridge` pointer here before any
+        // message needs it.
         if msg == WM_NCCREATE {
             let create_struct = &*(l_param as *const CREATESTRUCTW);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create_struct.lpCreateParams as isize);
@@ -78,13 +82,16 @@ unsafe extern "system" fn wnd_proc(
             let bridge = &*(ptr as *const EventBridge);
             let handler = &*(bridge.handler);
             let res = handler.wnd_proc(hwnd, msg, w_param, l_param);
+            // WM_NCDESTROY is the last message for this window; reclaim the
+            // leaked box now so the bridge's lifetime matches the window's.
             if msg == WM_NCDESTROY {
-                // make sure bridge is dropped
                 let _ = Box::<EventBridge>::from_raw(ptr as *mut EventBridge);
             }
             return res;
         }
 
+        // Messages that arrive before WM_NCCREATE (no handler yet) fall back to
+        // the default behavior.
         DefWindowProcW(hwnd, msg, w_param, l_param)
     }
 }
@@ -95,9 +102,12 @@ impl Drop for WindowClass {
     }
 }
 
+// Heap-allocated glue handed to Win32 as the window's userdata: the type-erased
+// Rust handler plus a borrow of the registered class so the class outlives every
+// window created from it.
 struct EventBridge {
     handler: *const dyn WindowAdapter,
-    _class: &'static WindowClass, // keep class alive
+    _class: &'static WindowClass,
 }
 
 pub trait WindowAdapter {

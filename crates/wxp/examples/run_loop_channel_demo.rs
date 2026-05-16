@@ -1,4 +1,9 @@
-// Channel streaming demo - run_loop version (using CommandContext)
+//! Rust→JS streaming demo using [`Channel`], driven by the crate's `RunLoop`.
+//!
+//! A command receives a JS-created `Channel` as an argument and pushes a
+//! sequence of messages to it over time. Demonstrates that a `Channel` can be
+//! cloned and used from later run-loop callbacks, and that dropping it ends the
+//! JS-side stream automatically.
 
 use host_window::{HostWindowHandle, create_window};
 use log::info;
@@ -72,7 +77,8 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-// Struct to hold resources
+// Keeps the window and WebView alive for the app's lifetime; dropping
+// `WxpWebView` closes the native WebView.
 struct Resources {
     _window: HostWindowHandle,
     _webview: wxp::WxpWebView,
@@ -87,7 +93,9 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Register commands
     handler.register_async("start_streaming", |ctx| {
-        // Retrieve required values from context in advance
+        // `Channel` is extracted like any other arg, but it carries a handle to
+        // the JS-side callback. Wrap in `Arc` so each deferred send below can
+        // hold its own clone; the stream stays open until the last clone drops.
         let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
 
         // Async block
@@ -139,7 +147,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let resources = Arc::new(parking_lot::Mutex::new(None));
     let resources_for_schedule = resources.clone();
 
-    // Schedule WebView creation
+    // Build the WebView on the run loop thread (it is thread-affine) just
+    // before `main` blocks in `run_app`.
     let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
         // Create window
         let window_width = 600.0;

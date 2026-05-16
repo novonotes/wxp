@@ -1,4 +1,8 @@
-// Channel streaming demo - winit version (using CommandContext)
+//! Rust→JS [`Channel`] streaming demo hosted inside a **winit** application.
+//!
+//! Streaming is driven through winit user events (via `EventLoopProxy`) so all
+//! `channel.send` calls land on the loop thread; `RunLoop::init()` backs wxp's
+//! command dispatch.
 
 use log::info;
 use novonotes_run_loop::RunLoop;
@@ -84,6 +88,10 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
+// Window/webview/web_context are `Option` because they only exist after
+// `resumed`, and live on `App` so they outlive that callback (dropping
+// `WxpWebView` closes the WebView). `event_loop_proxy` lets background steps
+// post work back onto the loop thread.
 struct App {
     window: Option<Window>,
     webview: Option<wxp::WxpWebView>,
@@ -202,9 +210,9 @@ impl App {
         // Register commands
         let proxy_clone = event_loop_proxy.clone();
         handler.register_async("start_streaming", move |ctx| {
-            // Retrieve required values from context in advance
             let proxy = proxy_clone.clone();
-            // Create the channel
+            // Extract the JS Channel. `Arc` so each streaming step keeps a
+            // clone; the JS stream ends when the last clone drops.
             let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
 
             // Async block

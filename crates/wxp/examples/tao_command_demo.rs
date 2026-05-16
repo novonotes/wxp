@@ -1,4 +1,8 @@
-// greet command demo - tao-based (using CommandContext)
+//! `invoke()` command demo hosted inside a **tao** event loop.
+//!
+//! Same wxp usage as the run_loop demo, but here tao owns the main thread and
+//! drives OS/window events. `RunLoop::init()` is still required so wxp can
+//! dispatch commands on this thread; tao's loop is what actually pumps it.
 
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
@@ -90,16 +94,21 @@ fn main() -> wry::Result<()> {
         .build_as_child(&window)
         .unwrap();
 
-    // Set up a timer to periodically run the JavaScript queue
+    // Vestigial pump tick. IPC commands execute immediately on this thread, so
+    // there is no queue to drain here; the timer is kept only as the obvious
+    // place to hook periodic work if a future integration needs it.
     use std::time::{Duration, Instant};
     let mut last_check = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll; // Switch to polling mode
+        // `Poll` makes tao spin continuously instead of sleeping until the next
+        // OS event. Kept (with the vestigial timer below) from the original
+        // design's shape; this example does not itself drive `RunLoop`.
+        *control_flow = ControlFlow::Poll;
 
-        // Check the JavaScript queue every 10ms
+        // No queue to drain in immediate-execution mode — just advance the
+        // timestamp so the (currently no-op) tick keeps its cadence.
         if last_check.elapsed() > Duration::from_millis(10) {
-            // In immediate-execution mode, running the queue is not needed
             last_check = Instant::now();
         }
 
@@ -109,6 +118,8 @@ fn main() -> wry::Result<()> {
         } = event
         {
             *control_flow = ControlFlow::Exit;
+            // Pair with the init() above so the run loop is torn down before
+            // the process exits.
             RunLoop::deinit();
         }
     });

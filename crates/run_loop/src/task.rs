@@ -17,7 +17,8 @@ use futures::{
 
 use crate::RunLoopSender;
 
-// Trait that abstracts the abort capability of a task
+// Type-erased abort hook so the run loop can cancel a task without knowing its
+// output type `T`. Only the `JoinHandle`/`Drop` paths call it.
 pub(crate) trait AbortableTask: Send + Sync {
     #[allow(dead_code)] // only used in Drop impl
     fn abort(&self);
@@ -44,6 +45,11 @@ impl JoinError {
     }
 }
 
+/// A spawned future plus the slot where its result waits to be joined.
+///
+/// The future runs to completion via repeated `poll`s driven by its own
+/// `ArcWake`; the outcome is parked in `value` until a `JoinHandle` collects it,
+/// with `waker` bridging "result is ready" back to whoever awaits the handle.
 pub struct Task<T> {
     sender: RunLoopSender,
     future: UnsafeCell<Option<LocalBoxFuture<'static, T>>>,
@@ -52,8 +58,13 @@ pub struct Task<T> {
     aborted: AtomicBool,
 }
 
-// Tasks can only be spawned on run loop thread and will only be executed
-// on run loop thread. ArcWake however doesn't know this.
+// SAFETY: a Task is spawned and polled only on its run loop thread (the waker
+// re-posts the poll back there rather than polling inline), so the `!Send`
+// interior (`UnsafeCell`/`RefCell`/the future) is never *accessed*
+// concurrently. The impls exist solely because `ArcWake` requires `Send + Sync`
+// to build a `Waker`. Note this does not by itself guarantee the final `Arc`
+// (or the future inside it) is dropped on the run loop thread — callers that
+// move a `JoinHandle` across threads are responsible for that.
 unsafe impl<T> Send for Task<T> {}
 unsafe impl<T> Sync for Task<T> {}
 
@@ -116,7 +127,13 @@ impl<T: 'static> ArcWake for Task<T> {
     fn wake_by_ref(arc_self: &std::sync::Arc<Self>) {
         let arc_self = arc_self.clone();
         let sender = arc_self.sender.clone();
+        // A wake can fire from any thread, but the future is `!Send` and must be
+        // polled on its run loop thread — so bounce the actual poll back there
+        // via the sender rather than polling inline.
         sender.send(move || {
+            // Guard against redundant wakes: skip the poll if the task already
+            // produced a value or was aborted, then notify the joiner if the
+            // result is now available.
             if arc_self.value.borrow().is_none() && !arc_self.aborted.load(Ordering::Acquire) {
                 if let Poll::Ready(result) = arc_self.poll() {
                     *arc_self.value.borrow_mut() = Some(result);
@@ -140,15 +157,19 @@ impl<T: 'static> JoinHandle<T> {
         Self { task }
     }
 
-    /// Aborts the task, dropping the future and preventing further execution.
-    /// The JoinHandle will return Err(JoinError::Cancelled) when polled after abort.
+    /// Aborts the task: drops its future and makes future polls of this handle
+    /// resolve to `Err(JoinError::Aborted)`.
     ///
     /// # Warning
     ///
-    /// This method forcibly terminates the running task immediately. Be aware that:
-    /// - File operations may be interrupted, leaving incomplete data
-    /// - Locks (Mutex, RwLock) may not be properly released if held during abort
-    /// - Resources like file handles or network connections may not be cleaned up
+    /// Cancellation happens by dropping the future at its current await point,
+    /// not by unwinding it — code between await points never gets to run its
+    /// cleanup. Concretely:
+    /// - in-flight I/O may be left half-written,
+    /// - guards held across an await may not run their intended teardown,
+    /// - external handles/connections owned by the future are just dropped.
+    ///
+    /// Prefer a cooperative cancellation signal when any of that matters.
     pub fn abort(&self) {
         self.task.abort();
     }

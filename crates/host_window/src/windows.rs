@@ -17,15 +17,18 @@ use winapi::um::winuser::{
 static WINDOW_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 const WINDOW_CLASS_NAME: &str = "novonotes.host_window.Window";
 
-/// Window handle for host_window
+/// A handle to the development host window, usable as a `raw-window-handle` source.
 ///
-/// This handle implements `Send` and `Sync`,
-/// and can be safely shared across threads.
+/// The handle may be moved between threads, but the `HWND` it wraps belongs to
+/// the thread that created the window (Win32 ties window messages to that
+/// thread). The `Send`/`Sync` impls only make the handle transportable.
 #[derive(Clone, Copy)]
 pub struct HostWindowHandle {
     hwnd: HWND,
 }
 
+// SAFETY: only the raw `HWND` value is shared. The dev harness drives the window
+// from its owning thread, so cross-thread message handling never occurs.
 unsafe impl Send for HostWindowHandle {}
 unsafe impl Sync for HostWindowHandle {}
 
@@ -74,12 +77,13 @@ impl HasWindowHandle for HostWindowHandle {
     }
 }
 
-/// Creates a window for the plugin environment
+/// Builds the dev host window.
 pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     unsafe {
         let hinstance = GetModuleHandleW(ptr::null());
 
-        // Register the window class (only once)
+        // A window class can only be registered once per process; the harness
+        // may create several windows, so guard the registration with an atomic.
         if !WINDOW_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
             register_window_class(hinstance);
         }
@@ -131,7 +135,9 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
             .collect();
         let window_name: Vec<u16> = OsStr::new(title).encode_wide().chain(once(0)).collect();
 
-        // Calculate window size (so that the client area matches the specified size)
+        // Callers pass the desired *client* (content) size, but `CreateWindowExW`
+        // takes the outer size. Inflate by the frame so the WebView gets exactly
+        // the requested dimensions.
         let mut rect = RECT {
             left: 0,
             top: 0,
@@ -171,7 +177,10 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
     }
 }
 
-/// Window procedure
+/// Window procedure: defers everything to the default handler.
+///
+/// The dev harness only needs a window to parent the WebView into; it does no
+/// custom input or painting, so there is no message to intercept here.
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: UINT,

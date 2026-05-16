@@ -1,4 +1,7 @@
-// Channel streaming demo - tao-based (using CommandContext)
+//! Rust→JS [`Channel`] streaming demo hosted inside a **tao** event loop.
+//!
+//! Same channel usage as `run_loop_channel_demo`; tao owns the main thread
+//! while `RunLoop::init()` backs wxp's command/stream dispatch.
 
 use log::info;
 use novonotes_run_loop::RunLoop;
@@ -102,9 +105,9 @@ fn main() -> wry::Result<()> {
     // Register commands
     let proxy_clone = proxy.clone();
     handler.register_async("start_streaming", move |ctx| {
-        // Retrieve required values from context in advance
         let proxy = proxy_clone.clone();
-        // Create the channel
+        // Extract the JS-created Channel. `Arc` so each deferred sender holds a
+        // clone; the JS stream ends when the last clone is dropped.
         let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
 
         // Async block
@@ -114,7 +117,9 @@ fn main() -> wry::Result<()> {
 
             info!("Received channel ID: {}", channel_id);
 
-            // Notify the event loop to start streaming
+            // The command returns immediately; the actual streaming is driven
+            // by the tao loop. Hand the channel off via an EventLoopProxy so
+            // every `channel.send` happens on the loop thread.
             let _ = proxy.send_event(UserEvent::StartStreaming(
                 channel_id.to_string(),
                 channel.clone(),
@@ -174,7 +179,9 @@ fn main() -> wry::Result<()> {
                             info!("Sending message #{}", index + 1);
 
                             if channel.send(message).is_ok() {
-                                // Send the next message after 500ms
+                                // Space out messages without blocking the loop:
+                                // sleep on a throwaway thread, then post the
+                                // next step back via the proxy.
                                 let proxy_clone = proxy.clone();
                                 let channel_id_clone = channel_id.clone();
                                 let channel_clone = channel.clone();

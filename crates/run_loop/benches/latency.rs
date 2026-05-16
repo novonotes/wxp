@@ -1,3 +1,10 @@
+//! Latency benchmarks for the run loop.
+//!
+//! Plugin UIs post work onto the run loop on every interaction frame, so the
+//! cost of `schedule`/`spawn`/`sender.send` directly bounds UI responsiveness.
+//! These benches track that wake-to-execute latency, including the cross-thread
+//! path used when background work talks to the UI thread.
+
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use novonotes_run_loop::{RunLoop, RunLoopSender};
 use std::sync::{Arc, Barrier, Mutex, mpsc};
@@ -145,7 +152,9 @@ fn bench_sender_cross_thread_latency(c: &mut Criterion) {
 }
 
 fn bench_sender_send_and_wait_latency(c: &mut Criterion) {
-    // Run the RunLoop on a background thread
+    // `send_and_wait` blocks the caller until the run loop thread runs the
+    // closure, so the loop must live on a *different* thread than the
+    // benchmark; driving both on one thread would deadlock by construction.
     let (ready_tx, ready_rx) = mpsc::channel();
     let (sender_tx, sender_rx) = mpsc::channel::<RunLoopSender>();
     let running = Arc::new(Mutex::new(true));

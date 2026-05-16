@@ -6,6 +6,11 @@ use wry::{WebViewBuilder, http::Response};
 
 use super::channel::ChannelResponseBody;
 
+// Process-global handoff buffer for large channel payloads. It is global
+// because the custom-protocol handler is a plain closure with no access to
+// per-Channel state; the numeric id in the request header is what reconnects a
+// fetch to its payload. Entries are removed on fetch (or WebView close), so
+// this is a transient handoff, not a cache.
 static CHANNEL_DATA_STORE: Lazy<Arc<Mutex<HashMap<u32, ChannelResponseBody>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
@@ -28,7 +33,9 @@ pub(crate) fn remove_channel_data(id: u32) {
 /// Registers the channel protocol
 pub(crate) fn setup_channel_protocol(builder: WebViewBuilder) -> WebViewBuilder {
     builder.with_custom_protocol("wxp-channel".into(), move |_webview, request| {
-        // Handle OPTIONS request for CORS preflight (required for Windows)
+        // WebView2 (Windows) sends a CORS preflight for this custom protocol;
+        // without an explicit OPTIONS response the channel fetch is blocked.
+        // Harmless elsewhere, so always answer it.
         if request.method() == "OPTIONS" {
             return Response::builder()
                 .header("Access-Control-Allow-Origin", "*")

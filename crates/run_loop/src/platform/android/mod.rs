@@ -17,6 +17,17 @@ use sys::{libc::*, ndk_sys::*};
 
 use self::sys::libc;
 
+/// Android run loop driven by the thread's `ALooper`.
+///
+/// Two file descriptors are registered with the looper so it wakes for our work
+/// without us owning the looper's poll loop:
+/// - `pipes`: a self-pipe; cross-thread senders write a byte to wake the looper
+///   and have queued callbacks drained.
+/// - `state.timer_fd`: a `timerfd` armed for the next scheduled callback.
+///
+/// `state_ptr` is a leaked `Weak<State>` handed to the C callbacks and reclaimed
+/// in `Drop`. A `Weak` (not `Rc`) is used so a pending looper callback can never
+/// keep `State` alive past this object's lifetime.
 pub struct PlatformRunLoop {
     looper: *mut ALooper,
     pipes: [c_int; 2],
@@ -123,9 +134,14 @@ impl PlatformRunLoop {
         events: ::std::ffi::c_int,
         data: *mut ::std::ffi::c_void,
     ) -> ::std::ffi::c_int {
+        // Drain the wake byte(s) so the fd does not stay signaled.
         let mut buf = [0u8; 8];
         read(fd, buf.as_mut_ptr() as *mut _, buf.len());
 
+        // `data` is the leaked `Weak<State>`. Reborrow it via `ManuallyDrop` so
+        // this callback does NOT consume the single weak ref (that ref is owned
+        // by `PlatformRunLoop` and freed in its `Drop`). `upgrade` failing means
+        // the run loop is gone — just ignore the event.
         let state = data as *const State;
         let state = ManuallyDrop::new(Weak::from_raw(state));
         if let Some(state) = state.upgrade() {
@@ -139,6 +155,8 @@ impl PlatformRunLoop {
         events: ::std::ffi::c_int,
         data: *mut ::std::ffi::c_void,
     ) -> ::std::ffi::c_int {
+        // Same borrow-without-consuming dance as `looper_cb`; here the wake
+        // source is the timerfd firing for due timers.
         let mut buf = [0u8; 8];
         read(fd, buf.as_mut_ptr() as *mut _, buf.len());
 
@@ -327,6 +345,8 @@ impl PlatformRunLoopSender {
         if let Some(callbacks) = self.callbacks.upgrade() {
             let mut callbacks = callbacks.lock().unwrap();
             callbacks.callbacks.push(Box::new(callback));
+            // Write to the self-pipe to wake the looper; the byte value is
+            // irrelevant, the readable fd is the signal that drains the queue.
             let buf = [0u8; 8];
             unsafe {
                 write(callbacks.fd, buf.as_ptr() as *const _, buf.len());

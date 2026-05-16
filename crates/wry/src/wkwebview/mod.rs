@@ -889,7 +889,9 @@ r#"Object.defineProperty(window, 'ipc', {
         // Allow the modal to detach from the current thread and be non-blocker
         print_operation.setCanSpawnSeparateThread(true);
 
-        // Launch the modal
+        // Launch the modal only if attached to a window. Upstream unwraps here;
+        // skipping the print rather than panicking is the safe choice for an
+        // embedded editor that has no window yet.
         if let Some(window) = self.webview.window() {
           print_operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
             &window,
@@ -1000,6 +1002,9 @@ r#"Object.defineProperty(window, 'ipc', {
     #[allow(unused_unsafe)]
     unsafe {
       let webview_frame = self.webview.frame();
+      // Upstream unwraps `superview()`. An embedded editor can be queried
+      // before the host attaches it, so fall back to the webview's own height
+      // (the y-flip below then becomes a no-op) instead of panicking.
       let parent_height = self
         .webview
         .superview()
@@ -1287,6 +1292,8 @@ r#"Object.defineProperty(window, 'ipc', {
   #[cfg(target_os = "macos")]
   pub(crate) fn reparent(&self, window: *mut NSWindow) -> crate::Result<()> {
     unsafe {
+      // No-op if the target window has no content view yet (upstream unwraps);
+      // the host will reparent again once its window is fully constructed.
       if let Some(content_view) = (*window).contentView() {
         content_view.addSubview(&self.webview);
       }
@@ -1298,6 +1305,8 @@ r#"Object.defineProperty(window, 'ipc', {
   #[cfg(target_os = "macos")]
   pub(crate) fn set_traffic_light_inset(&self, position: dpi::Position) -> crate::Result<()> {
     if let Some(parent_view) = &self.parent_view {
+      // Best-effort: skip silently if not yet in a window (upstream unwraps).
+      // The inset is reapplied on the next bounds/attach cycle.
       if let Some(window) = self.webview.window() {
         parent_view.set_traffic_light_inset(&window, position);
       }

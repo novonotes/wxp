@@ -15,6 +15,10 @@ use self::sys::windows::*;
 pub type HandleType = usize;
 pub const INVALID_HANDLE: HandleType = 0;
 
+/// Lets other components observe the run loop window's raw messages.
+///
+/// Used so e.g. a WebView host can react to Win32 messages delivered to the
+/// loop's hidden window without owning the window procedure itself.
 pub trait MessageListener {
     fn on_window_message(&self, hwnd: isize, message: u32, w_param: usize, l_param: isize);
 }
@@ -60,6 +64,8 @@ impl PlatformRunLoop {
         self.state.run();
     }
 
+    // Windows has no separate "application" object like AppKit; driving the
+    // message loop is all there is, so `run_app`/`stop_app` just alias run/stop.
     pub fn run_app(&self) {
         self.run();
     }
@@ -88,6 +94,8 @@ struct Timer {
 
 type SenderCallback = Box<dyn FnOnce() + Send>;
 
+// Private stop message. Posting one (instead of just setting a flag) guarantees
+// the blocking `GetMessageW` wakes so the loop can observe the stop request.
 const WM_RUNLOOP_STOP: u32 = WM_USER + 1;
 
 struct State {
@@ -135,6 +143,9 @@ impl State {
     }
 
     fn initialize(&self) {
+        // The loop is driven by an invisible message-only window (parented to
+        // HWND_MESSAGE inside `create_window`): it never displays, it just gives
+        // us an HWND to post timer/sender/stop messages to.
         self.hwnd.set(self.create_window(
             "Irondash RunLoop Window",
             0, // WINDOW_STYLE

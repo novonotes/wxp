@@ -71,6 +71,11 @@ pub struct Timer {
 }
 
 impl Timer {
+    /// 同期 callback を `interval` ごとに実行する timer を作る。
+    ///
+    /// 作っただけでは発火しない。[`start`](Self::start) で開始する。callback は
+    /// run loop thread 上で呼ばれるため `Send` 不要で、native object をそのまま
+    /// capture できる。
     pub fn new<F>(interval: Duration, callback: F) -> Self
     where
         F: Fn() + 'static,
@@ -102,6 +107,11 @@ impl Timer {
         })
     }
 
+    /// `interval` ごとに future を spawn する非同期版 timer。
+    ///
+    /// tick は future の完了を待たずに次の interval を schedule する（処理が長引いて
+    /// も tick 自体は詰まらない）。一度 spawn された future は timer を drop しても
+    /// run loop 側で走り続ける点に注意。
     pub fn new_async<F, Fut>(interval: Duration, callback: F) -> Self
     where
         F: Fn() -> Fut + 'static,
@@ -117,12 +127,17 @@ impl Timer {
         }
     }
 
+    /// 繰り返しを開始する。多重 start は無視される（冪等）。
+    ///
+    /// run loop thread 以外から呼ぶのは誤用なので debug build では panic させ、
+    /// 取り違えを早期に顕在化させる。
     pub fn start(&self) {
         debug_assert!(
             RunLoop::try_current().is_ok(),
             "Timer must be started on the initialized RunLoop thread"
         );
 
+        // 既に動いている場合に再 schedule すると tick が二重化するため弾く。
         if self.inner.is_running.replace(true) {
             return;
         }
@@ -130,6 +145,7 @@ impl Timer {
         self.schedule_next();
     }
 
+    /// 繰り返しを停止し、予約済みの次回 tick を cancel する。再 `start` 可能。
     pub fn stop(&self) {
         self.inner.is_running.set(false);
 
@@ -138,11 +154,15 @@ impl Timer {
         }
     }
 
+    /// 現在 tick が予約され続けている状態かどうか。
     pub fn is_running(&self) -> bool {
         self.inner.is_running.get()
     }
 
     fn schedule_next(&self) {
+        // `Weak` で渡すことで、scheduled tick が run loop queue に残ったまま Timer
+        // が drop されても tick 側が `upgrade` に失敗して自然に止まる。`Rc` を渡すと
+        // queue が Timer を延命してしまい drop で止められなくなる。
         let weak_inner = Rc::downgrade(&self.inner);
         let interval = self.inner.interval;
 
@@ -154,11 +174,16 @@ impl Timer {
     }
 }
 
+// 1 回分の tick: callback を実行し、自身を次の interval へ再 schedule する
+// （fixed-delay 方式。固定周期ではなく callback 完了後に次を積む）。
 fn run_timer_tick(weak_inner: Weak<TimerInner>) {
+    // Timer が既に drop 済みなら何もしない。
     let Some(inner) = weak_inner.upgrade() else {
         return;
     };
 
+    // schedule 後・実行前に stop された tick を握り潰す。これがないと stop した
+    // 直後に 1 回余分に発火し得る。
     if !inner.is_running.get() {
         return;
     }
@@ -176,6 +201,7 @@ fn run_timer_tick(weak_inner: Weak<TimerInner>) {
 }
 
 impl Drop for Timer {
+    // drop だけで確実に止まるようにしておく（明示 stop の呼び忘れ対策）。
     fn drop(&mut self) {
         self.stop();
     }

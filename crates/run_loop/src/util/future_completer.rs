@@ -2,9 +2,13 @@ use std::{cell::RefCell, rc::Rc, task::Poll};
 
 use futures::Future;
 
+// Single-threaded one-shot future.
 //
-// Single threaded completable future
-//
+// A `CompletableFuture` paired with a `FutureCompleter`: awaiting the future
+// parks until `complete` is called with the value. Deliberately `Rc`/`RefCell`
+// based (no synchronization) because both ends live on the same run loop
+// thread — this is the building block behind things like `RunLoop::delay`,
+// where a scheduled callback completes the future.
 
 struct State<T> {
     waker: Option<std::task::Waker>,

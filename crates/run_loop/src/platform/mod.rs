@@ -1,3 +1,9 @@
+//! Selects the per-OS run loop backend and re-exports it under one name.
+//!
+//! The rest of the crate programs against `platform::*` and never against a
+//! specific OS, so each backend must expose the same surface (`PlatformRunLoop`,
+//! `PlatformRunLoopSender`, `PollSession`, thread-id helpers).
+
 pub use self::platform_impl::*;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]

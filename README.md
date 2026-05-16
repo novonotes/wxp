@@ -58,7 +58,7 @@ expect breaking changes between alpha releases.
 ## Installation
 
 - The Rust crate is not published to crates.io. Use it with a `git` + `rev` pin.
-- `@novonotes/webview-bridge` is a private package for WXP WebView frontends. Use it from this repository workspace or from an internal tarball.
+- `@novonotes/webview-bridge` has not been published to npm yet. It is distributed as a tarball via GitHub Releases.
 
 Example Cargo configuration:
 ```toml
@@ -67,9 +67,9 @@ wxp = { git = "https://github.com/novonotes/wxp.git", rev = "<latest commit hash
 run_loop_timer = { git = "https://github.com/novonotes/wxp.git", package = "run_loop_timer", rev = "<latest commit hash on main branch>" }
 ```
 
-npm installation from a local checkout:
+npm installation:
 ```sh
-npm install /path/to/wxp/packages/webview-bridge
+npm install https://files.novonotes.download/libs/novonotes-webview-bridge-0.1.0-alpha.1.tgz
 ```
 
 ## License

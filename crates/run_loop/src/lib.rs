@@ -9,6 +9,7 @@
 //! ## Notes
 //!
 //! - [`RunLoop::current()`] may only be called from the run loop thread. Use [`RunLoop::sender()`] from other threads.
+//! - [`RunLoop::init()`] marks the current thread as that run loop thread. In audio plugins, call it from the host main/UI thread that receives GUI callbacks, not from CLAP entry initialization.
 //! - Always pair `init()` with `deinit()` (the implementation uses reference counting internally).
 //! - Tests have a singleton constraint and must be serialized with `#[serial_test::serial]` (see [`test_harness`]).
 

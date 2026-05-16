@@ -177,7 +177,8 @@ impl Drop for RunLoopInner {
 /// The thread that called `RunLoop::init()`. At any given moment only a single run loop thread
 /// may exist in the entire process (MUST). `RunLoop::current()` is only usable on this thread.
 ///
-/// - Ordinary applications: should call `RunLoop::init()` on the main thread (SHOULD)
+/// - Ordinary applications: should call `RunLoop::init()` on the thread that drives the UI/run loop (SHOULD)
+/// - Audio plugins: should call `RunLoop::init()` from the host main/UI thread that will receive GUI callbacks, not from CLAP entry initialization (SHOULD)
 /// - Test environments: any thread may be designated as the run loop thread (MAY)
 /// - Thread switching: can be changed by calling `deinit()` then `init()` on another thread (MAY)
 pub struct RunLoop {
@@ -241,8 +242,14 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 impl RunLoop {
-    /// Call during application/DLL initialization (equivalent to CLAP `init` or VST3 `InitDll`).
-    /// Safe to call multiple times (defensive implementation).
+    /// Marks the current thread as the run loop thread and initializes the native loop backend.
+    ///
+    /// In audio plugins, call this from the host main/UI thread that will receive GUI callbacks.
+    /// Do not treat this as CLAP `clap_entry.init`: that entry point is DSO initialization and
+    /// may be called from a scanning or worker thread.
+    ///
+    /// Safe to call multiple times on the same run loop thread; pair each successful call with
+    /// [`RunLoop::deinit()`].
     pub fn init() -> Result<()> {
         let _guard = INIT_MUTEX.lock().unwrap();
 
@@ -291,8 +298,9 @@ impl RunLoop {
         Ok(())
     }
 
-    /// Call during application/DLL teardown (equivalent to CLAP `deinit` or VST3 `ExitDll`).
-    /// Must be called the same number of times as `init()`.
+    /// Releases one run loop initialization reference.
+    ///
+    /// Must be called the same number of times as successful [`RunLoop::init()`] calls.
     pub fn deinit() {
         let _guard = INIT_MUTEX.lock().unwrap();
 

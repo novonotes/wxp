@@ -1,7 +1,13 @@
-//! Module for managing WebView initialization scripts
+//! JavaScript injected into every page before its own scripts run.
+//!
+//! These run via wry's initialization-script hook, so they execute on every
+//! navigation and must be idempotent — each block early-returns if it has
+//! already installed itself. Order matters: `CORE` builds `__WXP_INTERNALS__`,
+//! which the channel and invoke scripts then extend.
 
-/// Core feature initialization script
-/// Provides the __WXP_INTERNALS__ object and callback management functionality
+/// Bootstraps `window.__WXP_INTERNALS__`: the shared callback registry that the
+/// Rust↔JS bridge uses to route responses and channel messages back to JS.
+/// Must run before the channel/invoke scripts, which assume it exists.
 const CORE_INIT_SCRIPT: &str = r#"
 (function() {
     if (window.__WXP_INTERNALS__) {
@@ -35,8 +41,10 @@ const CORE_INIT_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Channel feature initialization script
-/// Adds the Channel class and fetch method
+/// Installs the JS `Channel` class for Rust→JS push streams. Channel data is
+/// pulled over a custom fetch protocol (rather than pushed through IPC) so large
+/// or binary payloads bypass the string-only IPC bridge. Messages carry indices
+/// and are reordered/buffered here because delivery is not guaranteed in order.
 const CHANNEL_INIT_SCRIPT: &str = r#"
 (function() {
     if (!window.__WXP_INTERNALS__ || window.__WXP_INTERNALS__.fetchChannelData) {
@@ -149,8 +157,12 @@ const CHANNEL_INIT_SCRIPT: &str = r#"
 })();
 "#;
 
-/// invoke feature initialization script
-/// Adds the window.invoke function
+/// Installs `window.invoke(cmd, args)` — the Promise-based JS→Rust call API.
+///
+/// Only injected when a command handler is configured. Calls made before wry's
+/// `window.ipc` bridge is ready are queued and flushed once it appears, so
+/// front-end code can call `invoke` immediately at startup without racing the
+/// bridge injection.
 const INVOKE_INIT_SCRIPT: &str = r#"
 (function() {
     if (!window.__WXP_INTERNALS__ || window.invoke) {
@@ -222,7 +234,11 @@ const INVOKE_INIT_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Concatenates and returns all initialization scripts
+/// Builds the combined init script in dependency order.
+///
+/// Core + channel are always included (the Channel API is always on); the
+/// invoke script is appended only when a command handler is present, so pages
+/// without one do not get an unusable `window.invoke`.
 pub(crate) fn get_initialization_scripts(with_invoke: bool) -> String {
     let mut scripts = vec![CORE_INIT_SCRIPT, CHANNEL_INIT_SCRIPT];
 

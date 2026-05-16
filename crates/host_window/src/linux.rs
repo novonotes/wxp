@@ -4,16 +4,19 @@ use std::os::raw::{c_char, c_int, c_ulong};
 use std::ptr;
 use x11::xlib::*;
 
-/// Window handle for host_window
+/// A handle to the development host window, usable as a `raw-window-handle` source.
 ///
-/// This handle implements `Send` and `Sync`,
-/// and can be safely shared across threads.
+/// The handle may be moved between threads, but Xlib's `Display` connection is
+/// not thread-safe; all calls below must come from the harness thread that owns
+/// it. The `Send`/`Sync` impls only make the handle transportable.
 #[derive(Clone, Copy)]
 pub struct HostWindowHandle {
     display: *mut Display,
     window: Window,
 }
 
+// SAFETY: only the handle is shared. The dev harness serializes all Xlib calls
+// on its owning thread, so the unsynchronized `Display` is never used elsewhere.
 unsafe impl Send for HostWindowHandle {}
 unsafe impl Sync for HostWindowHandle {}
 
@@ -65,12 +68,14 @@ impl HostWindowHandle {
 impl HasWindowHandle for HostWindowHandle {
     fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
         let mut handle = XlibWindowHandle::new(self.window);
-        handle.visual_id = 0; // Use the default visual
+        // 0 tells consumers to use the screen's default visual; the dev window
+        // is created with `XCreateSimpleWindow`, which inherits exactly that.
+        handle.visual_id = 0;
         Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Xlib(handle)) })
     }
 }
 
-/// Creates a window for the plugin environment
+/// Builds the dev host window.
 pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     unsafe {
         // Open the display
@@ -101,7 +106,8 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
         let title_cstring = CString::new(title).unwrap();
         XStoreName(display, window, title_cstring.as_ptr() as *mut c_char);
 
-        // Set up window manager protocols
+        // Opt into WM_DELETE_WINDOW so the window manager's close button delivers
+        // a client message instead of killing the X connection out from under us.
         let wm_protocols = XInternAtom(display, b"WM_PROTOCOLS\0".as_ptr() as *const c_char, False);
         let wm_delete_window = XInternAtom(
             display,
@@ -131,7 +137,8 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
     }
 }
 
-// Additional constant definitions
+// The `x11` crate does not re-export these event-mask bits, so define the ones
+// we need here. Values are fixed by the X11 protocol.
 const ExposureMask: CLong = 1 << 15;
 const KeyPressMask: CLong = 1 << 0;
 const StructureNotifyMask: CLong = 1 << 17;

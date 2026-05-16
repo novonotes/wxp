@@ -1,4 +1,7 @@
-// Custom test harness — starting with a simple window creation test
+// Uses a custom `main` (harness = false) instead of `#[test]`: native windows
+// and the run loop must live on the process main thread, but Rust's default
+// test harness runs each test on a spawned thread, which AppKit/X11/Win32
+// reject. This also verifies host_window and the run loop cooperate end to end.
 use host_window::create_window;
 use log::error;
 use novonotes_run_loop::RunLoop;
@@ -13,6 +16,8 @@ fn main() {
     // Run tests
     let mut failed = false;
 
+    // Isolate the test so a panic is reported as a failure and still lets the
+    // run loop be torn down cleanly below, rather than aborting the process.
     print!("Testing window creation... ");
     match std::panic::catch_unwind(|| test_simple_window()) {
         Ok(_) => println!("✓"),
@@ -35,22 +40,19 @@ fn main() {
 }
 
 fn test_simple_window() {
-    // Create a simple window
     let window_handle = create_window("Test Window", 400.0, 300.0);
-
-    // Show the window
     window_handle.show();
 
-    // Wait a moment
+    // Run the loop briefly so the window actually reaches the screen, then stop
+    // it from within so the test terminates instead of blocking forever.
+    // `detach` lets the scheduled task outlive its handle.
     let mut handle = RunLoop::current().schedule(Duration::from_secs(1), move || {
         println!("Window test completed");
         RunLoop::current().stop_app();
     });
     handle.detach();
 
-    // In a desktop environment, use run_app
     RunLoop::current().run_app();
 
-    // Destroy the window
     window_handle.destroy();
 }

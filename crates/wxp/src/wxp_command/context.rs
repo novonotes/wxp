@@ -15,14 +15,20 @@ pub struct DeserializeContext<'a> {
     pub(crate) webview: WebViewDispatch,
 }
 
-/// Trait for converting command arguments
+/// Extension point for extracting a typed command argument.
+///
+/// The blanket impl below covers ordinary `DeserializeOwned` types (plain JSON
+/// deserialization). Types that need more than the JSON value — notably
+/// [`Channel`](crate::Channel), which must also capture the WebView dispatch —
+/// supply their own impl, which is why this receives the whole
+/// `DeserializeContext` rather than just a `Value`.
 #[doc(hidden)]
 pub trait TryFromDeserializeContext<'de>: Sized {
-    /// Attempts to convert from a DeserializeContext into Self
     fn try_from(ctx: DeserializeContext<'de>) -> Result<Self, Value>;
 }
 
-/// Automatically implements TryFromDeserializeContext for Deserializable types
+/// Default path: any `DeserializeOwned` type is decoded straight from its JSON
+/// argument. Custom impls (e.g. `Channel`) opt out by not being `Deserialize`.
 impl<'de, T: DeserializeOwned> TryFromDeserializeContext<'de> for T {
     fn try_from(cmd: DeserializeContext<'de>) -> Result<Self, Value> {
         let value = cmd.args.get(cmd.key).ok_or_else(|| {

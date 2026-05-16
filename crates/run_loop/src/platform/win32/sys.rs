@@ -1,3 +1,9 @@
+//! Hand-written Win32 FFI for the Windows backend.
+//!
+//! Declares only the handful of user32/kernel32 symbols and structs this crate
+//! needs, to avoid a heavy `windows`/`winapi` dependency in the run loop. Layout
+//! and names match the Win32 SDK verbatim — do not reorder struct fields.
+
 #[allow(non_camel_case_types, non_snake_case, clippy::upper_case_acronyms)]
 pub mod windows {
     pub type DWORD = u32;

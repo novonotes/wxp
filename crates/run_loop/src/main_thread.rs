@@ -5,6 +5,13 @@ use crate::{
     platform::{self, PlatformThreadId},
 };
 
+/// Records which thread is "the main thread" and how to post work onto it.
+///
+/// A plugin host owns the real main thread, so the crate cannot assume it. This
+/// enum captures the strategy chosen at init time:
+/// - `EngineContext`: defer the decision to Flutter's engine context.
+/// - `Manual`: the thread that called `init` is the main thread, reachable via
+///   its `RunLoopSender`.
 pub(crate) enum MainThreadFacilitator {
     #[cfg(feature = "flutter")]
     EngineContext,
@@ -14,9 +21,18 @@ pub(crate) enum MainThreadFacilitator {
     },
 }
 
+// Process-global: there is exactly one main thread per process. `None` until a
+// strategy is chosen, so misuse before `init` is detectable rather than silent.
 static MAIN_THREAD_FACILITATOR: Mutex<Option<MainThreadFacilitator>> = Mutex::new(None);
 
 impl MainThreadFacilitator {
+    /// Pins the current thread as the main thread for the current init
+    /// generation (cleared by [`reset`](Self::reset) on `deinit`).
+    ///
+    /// Calling it again from the *same* thread within a generation is a no-op.
+    /// A *conflicting* re-set — a different thread, or after the Flutter engine
+    /// context took over — is a programming error and panics loudly rather than
+    /// silently routing work to the wrong thread.
     pub(crate) fn set_for_current_thread() {
         let mut facilitator = MAIN_THREAD_FACILITATOR.lock().unwrap();
 
@@ -45,7 +61,10 @@ impl MainThreadFacilitator {
         }
     }
 
-    /// Resets the facilitator for the current thread.
+    /// Clears the pinned main thread so a later `init` can pick a new one.
+    ///
+    /// Paired with `deinit`; required because the same process (e.g. a host that
+    /// reloads the plugin) may go through several init/deinit cycles.
     pub(crate) fn reset() {
         let mut facilitator = MAIN_THREAD_FACILITATOR.lock().unwrap();
         *facilitator = None;
@@ -57,6 +76,10 @@ impl MainThreadFacilitator {
     {
         #[cfg_attr(not(feature = "flutter"), allow(unused_mut))]
         let mut facilitator = MAIN_THREAD_FACILITATOR.lock().unwrap();
+        // Under Flutter the engine sets the main thread up implicitly, so a
+        // missing facilitator just means "use the engine context". Without
+        // Flutter, an unset facilitator is a real bug (forgot `init`) and must
+        // not be papered over.
         if facilitator.is_none() {
             #[cfg(feature = "flutter")]
             {

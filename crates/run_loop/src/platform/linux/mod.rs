@@ -47,6 +47,10 @@ pub struct PlatformRunLoop {
     timers: Rc<RefCell<HashMap<HandleType, SourceId>>>,
 }
 
+// Attach a Rust closure to a GLib timeout source. GLib only takes a C function
+// + opaque pointer, so the closure is boxed, passed as that pointer, called via
+// `trampoline`, and freed via `destroy_closure` when GLib drops the source —
+// the standard pattern; keep the box/trampoline/destroy trio balanced.
 fn context_add_source<F>(context: *mut GMainContext, interval: Duration, func: F) -> SourceId
 where
     F: FnMut() -> gboolean + 'static,
@@ -116,6 +120,9 @@ fn context_remove_source(context: *mut GMainContext, source_id: SourceId) {
     }
 }
 
+// We have no real "main thread" signal inside a plugin, so we approximate it as
+// "the first thread that touched this library". The CAS only succeeds once, so
+// `FIRST_THREAD` latches the earliest observer and never moves afterwards.
 static FIRST_THREAD: AtomicUsize = AtomicUsize::new(0);
 static GTK_INIT: Once = Once::new();
 
@@ -129,6 +136,9 @@ fn is_main_thread() -> bool {
     FIRST_THREAD.load(Ordering::SeqCst) == get_system_thread_id()
 }
 
+// Run `remember_first_thread` from an ELF constructor (`.init_array`) so the
+// latch happens at library-load time — typically on the host's UI/main thread,
+// before any of our other code (or a worker thread) can claim it first.
 #[used]
 #[cfg_attr(
     any(target_os = "linux", target_os = "android"),
@@ -148,10 +158,13 @@ static ON_LOAD: extern "C" fn() = {
 #[allow(unused_variables)]
 impl PlatformRunLoop {
     pub fn new() -> Self {
-        // Initialize GTK/GDK if we're on the main thread
+        // Only the (approximate) main thread may init GTK; doing it from a
+        // worker would either be rejected by GTK or fight the host that already
+        // owns the UI. `Once` keeps it to a single attempt process-wide.
         if is_main_thread() {
             GTK_INIT.call_once(|| {
-                // Use gtk-rs init like tao does
+                // Match tao's gtk-rs initialization so embedding alongside a
+                // tao/winit-based host stays consistent.
                 if let Err(e) = gtk::init() {
                     let message =
                         format!("Failed to initialize GTK on Linux run loop thread: {}", e);
@@ -161,6 +174,11 @@ impl PlatformRunLoop {
             });
         }
 
+        // Reuse the host's existing GMainContext whenever possible so our
+        // callbacks/timers run on the same loop GTK already drives. Preference
+        // order: the default context if this thread owns it, else any
+        // thread-default the host installed, else the default context on the
+        // main thread, and only as a last resort a fresh private context.
         let context = unsafe {
             let default_context = g_main_context_default();
             if g_main_context_is_owner(default_context) == GTRUE {
@@ -267,15 +285,24 @@ impl Drop for PlatformRunLoop {
     }
 }
 
+/// RAII reference-count holder for a `GMainContext`.
+///
+/// Every holder owns exactly one ref; `Clone`/`Drop` mirror `g_main_context_ref`
+/// / `_unref`. This is what lets a `PlatformRunLoopSender` outlive (or be sent
+/// across threads from) the `PlatformRunLoop` without the context being freed.
 struct ContextHolder(*mut GMainContext);
 
+// SAFETY: GMainContext is documented as safe to ref/unref and to invoke into
+// from any thread; this holder only ever does those operations.
 unsafe impl Send for ContextHolder {}
 unsafe impl Sync for ContextHolder {}
 
 impl ContextHolder {
+    /// Takes a new ref on a context owned by someone else (host/GTK).
     unsafe fn retain(context: *mut GMainContext) -> Self {
         Self(unsafe { g_main_context_ref(context) })
     }
+    /// Takes ownership of a context we just created (no extra ref needed).
     unsafe fn adopt(context: *mut GMainContext) -> Self {
         Self(context)
     }

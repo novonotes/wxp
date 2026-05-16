@@ -90,7 +90,10 @@ impl<'a> WxpWebViewBuilder<'a> {
         self.builder = self
             .builder
             .with_custom_protocol(protocol, move |_webview, request| {
-                // Handle OPTIONS request for CORS preflight (required for Windows)
+                // WebView2 (Windows) issues a CORS preflight for custom-protocol
+                // requests; without an explicit OPTIONS response the real
+                // request is blocked and assets fail to load. Other platforms
+                // tolerate this too, so answer it unconditionally.
                 if request.method() == "OPTIONS" {
                     return Response::builder()
                         .header("Access-Control-Allow-Origin", "*")
@@ -110,6 +113,9 @@ impl<'a> WxpWebViewBuilder<'a> {
                     base_path.join(path.strip_prefix('/').unwrap_or(path))
                 };
 
+                // SPA fallback: a missing, extension-less path is a client-side
+                // route (e.g. `/settings`), not a real file, so serve the app
+                // shell and let the front-end router handle it.
                 if !file_path.exists() && !path.contains('.') {
                     file_path = base_path.join("index.html");
                 }
@@ -171,7 +177,10 @@ impl<'a> WxpWebViewBuilder<'a> {
             // If the ZIP file is large, reading and extracting per request may take time.
             // Consider using with_asynchronous_custom_protocol if supporting large file use cases.
             .with_custom_protocol(protocol, move |_webview, request| {
-                // Handle OPTIONS request for CORS preflight (required for Windows)
+                // WebView2 (Windows) issues a CORS preflight for custom-protocol
+                // requests; without an explicit OPTIONS response the real
+                // request is blocked and assets fail to load. Other platforms
+                // tolerate this too, so answer it unconditionally.
                 if request.method() == "OPTIONS" {
                     return Response::builder()
                         .header("Access-Control-Allow-Origin", "*")

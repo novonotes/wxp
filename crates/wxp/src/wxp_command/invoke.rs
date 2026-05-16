@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// Wire format for the JS↔Rust `invoke` bridge. These structs must stay in sync
+// with the message shape built by `INVOKE_INIT_SCRIPT` in `initialization.rs`:
+// `callback`/`error` are JS callback ids that the response is routed back to,
+// and `inner` carries the user-supplied arguments (flattened).
+
 /// invoke request from the frontend
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

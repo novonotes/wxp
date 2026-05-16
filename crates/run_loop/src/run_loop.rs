@@ -23,18 +23,21 @@ use crate::{
     util::FutureCompleter,
 };
 
-// Wrapper for static variables that are only accessed from the run loop thread.
-// Allows storing Send-but-!Sync types in static variables.
+// Lets a `!Send`/`!Sync` value (e.g. the platform run loop, which is `Rc`-based)
+// live in a `static`. Rust normally forbids this; the type is sound here *only*
+// because the contained value is read via the run-loop-thread checks in
+// `RunLoop::current`/`try_current`, and is installed/cleared only by
+// `initialize`/`shutdown`, which are serialized under `INIT_MUTEX`. So the
+// interior is never touched off the run loop thread or concurrently.
 struct RunLoopThreadOnly<T> {
     inner: std::cell::UnsafeCell<Option<T>>,
 }
 
-// RunLoopThreadOnly can hold !Send types, but access is only allowed from the
-// run loop thread.
+// SAFETY: these impls are a deliberate lie to the type system. They are sound
+// only under the invariant above (run-loop-thread reads; init/shutdown under
+// `INIT_MUTEX`). Do not add callers that bypass both.
 unsafe impl<T> Send for RunLoopThreadOnly<T> {}
 unsafe impl<T> Sync for RunLoopThreadOnly<T> {}
-// Warning: this implementation is unsafe! The caller must guarantee that access
-// is restricted to the run loop thread.
 
 impl<T> RunLoopThreadOnly<T> {
     const fn new() -> Self {
@@ -70,11 +73,17 @@ impl<T> RunLoopThreadOnly<T> {
     }
 }
 
-// Global singleton
+// There is at most one run loop per process. `RUN_LOOP_THREAD_ID` is the
+// cross-thread source of truth for "which thread owns it" and gates access to
+// the thread-only instance above.
 static RUN_LOOP_INSTANCE: RunLoopThreadOnly<Arc<RunLoopInner>> = RunLoopThreadOnly::new();
 static RUN_LOOP_THREAD_ID: Mutex<Option<ThreadId>> = Mutex::new(None);
 
-// Initialization counter following the CLAP pattern
+// init/deinit are reference-counted (CLAP/VST3 style): a host may load the same
+// plugin DLL into several instances that each call init/deinit, but the loop
+// must be created once and torn down only when the last instance leaves.
+// `INIT_MUTEX` serializes those transitions; `BLOCK_ON_ACTIVE` detects the
+// unsupported re-entrant `block_on`.
 static INIT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static INIT_MUTEX: Mutex<()> = Mutex::new(());
 static BLOCK_ON_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -250,20 +259,29 @@ impl RunLoop {
         Ok(())
     }
 
-    /// Ensures the current thread is the run loop thread.
+    /// Forcibly rebinds the run loop to the current thread.
+    ///
+    /// Mainly a test-suite escape hatch: tests are serialized but a previous
+    /// test may have left the loop bound to a now-dead thread. Rather than
+    /// failing, tear the old loop down and rebuild it here, preserving the
+    /// existing init count so reference counting stays balanced.
     pub fn ensure_run_loop_on_current_thread() -> Result<()> {
         let guard = INIT_MUTEX.lock().unwrap();
         let count = INIT_COUNT.load(Ordering::SeqCst);
 
         if count == 0 {
+            // Nothing initialized yet — the normal path is sufficient.
             drop(guard);
             return Self::init();
         }
 
         if Self::is_run_loop_thread() {
+            // Already where we want to be; nothing to rebuild.
             return Ok(());
         }
 
+        // Bound to a different (likely dead) thread: rebuild in place and
+        // restore the original count so callers' deinit pairing still holds.
         INIT_COUNT.store(0, Ordering::SeqCst);
         Self::shutdown();
 
@@ -388,7 +406,12 @@ impl RunLoop {
         future.await
     }
 
-    /// Returns a sender object that can post callbacks to the run loop thread.
+    /// Returns a sender that posts callbacks onto the run loop thread.
+    ///
+    /// Callable from any thread — this is the cross-thread entry point. On the
+    /// run loop thread itself a concrete platform sender is cheap; from other
+    /// threads we hand back the indirect main-thread sender, which routes
+    /// through the facilitator without needing the (`!Send`) `RunLoop` here.
     pub fn sender() -> RunLoopSender {
         if Self::is_run_loop_thread() {
             RunLoop::current().new_sender()
@@ -446,17 +469,21 @@ impl RunLoop {
 
         let task = Arc::new(Task::new(self.new_sender(), future));
 
-        // Track the task
+        // Track only a `Weak` so a finished/dropped task can free itself; this
+        // list exists purely so `deinit`/`shutdown` can abort stragglers. The
+        // list would otherwise grow forever, so compact it once it gets large
+        // rather than on every spawn.
         {
             let mut tasks = self.inner.active_tasks.lock().unwrap();
             tasks.push(Arc::downgrade(&(task.clone() as Arc<dyn AbortableTask>)));
 
-            // Periodically clean up dead tasks
             if tasks.len() > 100 {
                 tasks.retain(|weak| weak.upgrade().is_some());
             }
         }
 
+        // Kick off the first poll by faking a wake; subsequent polls are driven
+        // by the task's own waker.
         ArcWake::wake_by_ref(&task);
         JoinHandle::new(task)
     }

@@ -5,7 +5,11 @@ use crate::{
     platform::PlatformRunLoopSender, util::BlockingVariable,
 };
 
-// Can be used to send callbacks from other threads to be executed on run loop thread
+/// A `Send + Clone` handle for posting callbacks onto a run loop from any thread.
+///
+/// This is the only sanctioned way to reach the run loop thread from background
+/// work: it lets `!Send` thread-affine state (native windows, WebView channels)
+/// stay on its owning thread while other threads merely enqueue work for it.
 #[derive(Clone)]
 pub struct RunLoopSender {
     inner: RunLoopSenderInner,
@@ -13,10 +17,14 @@ pub struct RunLoopSender {
 
 #[derive(Clone)]
 enum RunLoopSenderInner {
+    /// Targets a specific run loop captured at creation (`thread_id` is kept so
+    /// `is_same_thread` can short-circuit when already on that thread).
     PlatformSender {
         thread_id: SystemThreadId,
         platform_sender: PlatformRunLoopSender,
     },
+    /// Targets "the main thread" indirectly via `MainThreadFacilitator`. Used
+    /// when the concrete run loop is owned elsewhere (e.g. a Flutter engine).
     MainThreadSender,
 }
 
@@ -70,8 +78,9 @@ impl RunLoopSender {
                 thread_id,
                 platform_sender: _,
             } => get_system_thread_id() == thread_id,
-            // This should never panic as we check for whether engine context plugin is loaded
-            // before creating the sender.
+            // A `MainThreadSender` is only created after the `MainThreadFacilitator`
+            // was confirmed initialized, so resolving "same thread" via the run
+            // loop thread check here cannot fail.
             RunLoopSenderInner::MainThreadSender => RunLoop::is_run_loop_thread(),
         }
     }
@@ -89,8 +98,12 @@ impl RunLoopSender {
                 platform_sender.send(callback);
             }
             RunLoopSenderInner::MainThreadSender => {
-                // This should never panic as we check for whether engine context plugin is loaded
-                // before creating the sender.
+                // `unwrap` is sound: a `MainThreadSender` is only constructed
+                // after `MainThreadFacilitator::is_main_thread()` succeeded
+                // (see `RunLoop::sender`), which means the facilitator was
+                // already initialized — via `init()` (Manual) or the Flutter
+                // engine context. So `perform_on_main_thread` cannot hit the
+                // uninitialized path here.
                 MainThreadFacilitator::perform_on_main_thread(callback).unwrap();
             }
         }

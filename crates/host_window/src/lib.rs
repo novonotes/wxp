@@ -12,7 +12,12 @@ pub use macos::HostWindowHandle;
 #[cfg(target_os = "windows")]
 pub use windows::HostWindowHandle;
 
-/// Creates a window for the plugin environment
+/// Creates a standalone native window to host a WebView during local development.
+///
+/// In production a plugin receives its window from the DAW; this crate fakes that
+/// host so wxp can be run and tested as an ordinary application. The returned
+/// [`HostWindowHandle`] exposes a `raw-window-handle` that can be passed straight
+/// into wxp's child-WebView builder, mirroring how a real host hands one over.
 pub fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
     #[cfg(target_os = "macos")]
     return macos::create_window(title, width, height);

@@ -2220,16 +2220,21 @@ pub enum MemoryUsageLevel {
 /// Additional methods on `WebView` that are specific to Windows.
 #[cfg(target_os = "windows")]
 pub trait WebViewExtWindows {
-  /// Returns the WebView2 controller if WebView2 has finished creating it.
+  /// The WebView2 controller, or `None` until WebView2 has finished creating it.
   ///
-  /// Embedded plug-in hosts can crash when WebView2 creation is forced through a nested message
-  /// pump, so wxp's embedded wry lets creation finish asynchronously.
+  /// Upstream wry returns this unconditionally because it blocks on creation via
+  /// a nested message pump. That pump can crash embedded plug-in hosts (they
+  /// re-enter editor lifecycle callbacks), so wxp's wry lets creation complete
+  /// asynchronously instead — meaning these handles are absent for a short
+  /// window after construction and callers must handle `None`.
   fn controller(&self) -> Option<ICoreWebView2Controller>;
 
-  /// Webview environment.
+  /// The WebView2 environment, or `None` until creation completes (see
+  /// [`controller`](Self::controller)).
   fn environment(&self) -> Option<ICoreWebView2Environment>;
 
-  /// Webview instance.
+  /// The WebView2 instance, or `None` until creation completes (see
+  /// [`controller`](Self::controller)).
   fn webview(&self) -> Option<ICoreWebView2>;
 
   /// Changes the webview2 theme.

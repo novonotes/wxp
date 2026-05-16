@@ -2,7 +2,11 @@ use super::context::CommandContext;
 use std::future::Future;
 use std::marker::PhantomData;
 
-/// Closure-based async command
+/// Wraps an async command closure (`Fn -> impl Future`).
+///
+/// Async counterpart to [`SyncCommandFn`](super::command::SyncCommandFn); both
+/// converge on the `UnifiedCommand` trait so the handler dispatches them the
+/// same way. `PhantomData<(R, E)>` pins the result/error types for serialization.
 pub(super) struct AsyncCommandFn<F, R, E> {
     name: String,
     handler: F,

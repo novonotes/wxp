@@ -1,3 +1,8 @@
+//! Hand-written NDK (`ALooper`) and libc FFI for the Android backend.
+//!
+//! Only the symbols this crate uses are declared, to keep the run loop free of
+//! a full `ndk-sys`/`libc` dependency. Names mirror the NDK/libc headers.
+
 #[allow(non_camel_case_types)]
 pub mod ndk_sys {
     use std::ffi::{c_int, c_void};

@@ -1,4 +1,8 @@
-// greet command demo - run_loop version (using CommandContext)
+//! `invoke()` command demo, driven by the crate's own `RunLoop`.
+//!
+//! Shows the minimal shape of a wxp UI: register a command, then create the
+//! WebView *on the run loop thread* and keep it alive. The tao/winit variants
+//! show the same flow when an external event loop owns the thread instead.
 
 use host_window::{HostWindowHandle, create_window};
 use novonotes_run_loop::RunLoop;
@@ -41,7 +45,9 @@ const HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-// Struct to hold resources
+// The window and WebView must outlive the UI: dropping `WxpWebView` closes the
+// native WebView, and dropping the window destroys it. Holding both here keeps
+// them alive until the app exits.
 struct Resources {
     _window: HostWindowHandle,
     _webview: wxp::WxpWebView,
@@ -56,7 +62,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Register commands
     handler.register_async("greet", |ctx| {
-        // Retrieve argument with type safety (with a default value)
+        // `arg::<T>` deserializes a named argument from the JS `invoke` call;
+        // fall back to a default rather than failing the whole command.
         let name = ctx
             .arg::<String>("name")
             .unwrap_or_else(|_| "World".to_string());
@@ -72,7 +79,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let resources = Arc::new(parking_lot::Mutex::new(None));
     let resources_for_schedule = resources.clone();
 
-    // Schedule WebView creation
+    // The WebView is thread-affine and must be built on the run loop thread.
+    // `main` is about to block in `run_app`, so defer creation onto the loop
+    // (Duration::ZERO = "as soon as it starts spinning"); `detach` lets the
+    // scheduled work outlive its handle.
     let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
         // Create window
         let window_width = 600.0;

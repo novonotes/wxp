@@ -48,11 +48,22 @@ const MAIN_THREAD_DISPATCHER_SUBCLASS_ID: u32 = WM_USER + 0x66;
 static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!("Wry::ExecMsg")) });
 static WINDOW_CLASS_NAME: OnceCell<HSTRING> = OnceCell::new();
 
+// Design note for the wxp fork of this backend:
+//
+// Upstream wry creates the WebView2 environment/controller synchronously by
+// running a nested message pump (`wait_with_pump`) until the async callback
+// fires. Inside plug-in hosts (e.g. Ableton Live) that nested pump dispatches
+// host editor-lifecycle callbacks re-entrantly and crashes. So this fork never
+// pumps: `InnerWebView::new` returns immediately, creation continues from
+// WebView2's own completion callbacks, and `WebViewState` holds the not-yet-
+// ready handles. Consequences that ripple through this file: the public
+// `controller()/environment()/webview()` return `Option`, and operations
+// issued before creation finishes are buffered (`pending_bounds`,
+// `pending_navigation`) and replayed in `finish_create_controller`.
 thread_local! {
-  // WebView2 completes controller creation by dispatching back to the same UI thread. Plug-in
-  // hosts such as Ableton Live can re-enter editor lifecycle callbacks while nested message pumps
-  // are waiting for that callback, so controller creation is serialized and continued from the
-  // WebView2 completion callback instead.
+  // Creations are also serialized one-at-a-time per thread: starting several at
+  // once confuses WebView2's temporary native child-window association. Each
+  // creation continues the next from its completion callback.
   static WEBVIEW2_CONTROLLER_CREATION_QUEUE: RefCell<WebView2ControllerCreationQueue> =
     RefCell::new(WebView2ControllerCreationQueue::default());
 }
@@ -83,15 +94,22 @@ struct WebView2ControllerCreationQueue {
   pending: VecDeque<Box<dyn FnOnce()>>,
 }
 
+// Shared between `InnerWebView` and the in-flight creation callbacks (see the
+// design note above). It bridges the gap between "construction returned" and
+// "WebView2 is actually ready".
 struct WebViewState {
-  // `InnerWebView::new` returns before WebView2 has delivered its controller callback. This state
-  // keeps wry's synchronous public shape usable while avoiding a nested message pump in plug-in
-  // hosts.
+  // False once `InnerWebView` is dropped. Creation callbacks check this so a
+  // controller that finishes *after* the owner is gone is closed instead of
+  // wired up (the owner can be dropped mid-creation in a plug-in host).
   alive: bool,
+  // Desired visibility, remembered so a `set_visible` issued before the
+  // controller exists is applied once it does.
   visible: bool,
   controller: Option<ICoreWebView2Controller>,
   webview: Option<ICoreWebView2>,
   env: Option<ICoreWebView2Environment>,
+  // Operations requested before creation finished; replayed by
+  // `finish_create_controller`. Only the latest of each matters.
   pending_bounds: Option<(PhysicalSize<i32>, PhysicalPosition<i32>)>,
   pending_navigation: Option<PendingNavigation>,
   // Store FileDropController in here to make sure it gets dropped when
@@ -354,13 +372,19 @@ impl InnerWebView {
     Ok(hwnd)
   }
 
+  /// Erases the caller's borrow from `WebViewAttributes` so it can be moved into
+  /// the deferred creation callbacks (which outlive this call).
+  ///
+  /// SAFETY: `id` and `context` are the only borrowed fields. They are copied
+  /// out beforehand and cleared to `None` here, so after this no field actually
+  /// references caller-owned data and the `'static` transmute is sound. If a
+  /// future borrowed field is added to `WebViewAttributes`, it MUST be handled
+  /// here too or this becomes unsound.
   fn detach_attribute_lifetime(
     mut attributes: WebViewAttributes<'_>,
   ) -> WebViewAttributes<'static> {
     attributes.id = None;
     attributes.context = None;
-    // Only `id` and `context` borrow from the caller. They are copied out or intentionally dropped
-    // before the attributes cross into WebView2's asynchronous callbacks.
     unsafe { std::mem::transmute::<WebViewAttributes<'_>, WebViewAttributes<'static>>(attributes) }
   }
 

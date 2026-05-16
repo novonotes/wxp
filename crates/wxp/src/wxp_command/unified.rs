@@ -6,10 +6,14 @@ use serde_json::Value;
 use std::future::Future;
 use std::rc::Rc;
 
-/// Trait for handling both sync and async commands uniformly
+/// Erases sync vs. async commands behind one dynamically dispatchable type so
+/// the handler can store them together in a single `HashMap`.
+///
+/// `?Send` is required: commands run on the (`!Send`) run loop thread and may
+/// capture thread-affine state, so the futures must not be forced to be `Send`.
+/// `execute` normalizes both success and error to `Value` for the JS bridge.
 #[async_trait(?Send)]
 pub(super) trait UnifiedCommand {
-    /// Executes the command
     async fn execute(&self, ctx: CommandContext<'_>) -> Result<Value, Value>;
 }
 

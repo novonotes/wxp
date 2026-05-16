@@ -45,7 +45,10 @@ struct State {
     run_loop_mode: Id<NSString>,
 }
 
-// CFRunLoopTimer is thread safe
+// SAFETY: `State` is always accessed behind its `Mutex`, and the Core
+// Foundation handles it holds are safe to retain/release/signal from any
+// thread. It is deliberately `Send` but not `Sync` — senders on other threads
+// reach it only through `Arc<Mutex<State>>`.
 unsafe impl Send for State {}
 
 struct StatePendingExecution {
@@ -223,6 +226,11 @@ impl State {
         }
     }
 
+    // Core Foundation owns the source/timer `info` pointer and manages its
+    // lifetime through these callbacks. We bridge that to `Arc<Mutex<State>>`:
+    // `retain`/`release` mirror CF's ownership onto the Arc's strong count, so
+    // the state stays alive exactly as long as CF references it. Breaking this
+    // pairing (e.g. an unbalanced retain) leaks or use-after-frees the state.
     extern "C" fn retain(data: *const c_void) -> *const c_void {
         let state = data as *const Mutex<State>;
         unsafe { Arc::increment_strong_count(state) }
@@ -234,6 +242,9 @@ impl State {
         unsafe { Arc::decrement_strong_count(state) };
     }
 
+    // CF passes a borrowed pointer; reconstruct the Arc to use it, but wrap it
+    // in `ManuallyDrop` so this borrow does NOT decrement the strong count.
+    // Ownership is still governed solely by `retain`/`release` above.
     extern "C" fn on_timer(_timer: CFRunLoopTimerRef, data: *mut c_void) {
         let state = data as *const Mutex<State>;
         let state = unsafe { Arc::from_raw(state) };

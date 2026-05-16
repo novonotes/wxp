@@ -1,3 +1,9 @@
+//! Hand-written GLib/GTK FFI for the Linux backend.
+//!
+//! Only the few symbols this crate uses are declared, to avoid pulling in a
+//! full glib/gtk-sys dependency. Types and names mirror the C API verbatim;
+//! keep them in sync with GLib rather than "tidying" them.
+
 #[allow(non_camel_case_types)]
 pub mod glib {
     use std::os::raw::{c_int, c_uint, c_void};

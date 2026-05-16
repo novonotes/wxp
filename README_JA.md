@@ -4,7 +4,7 @@
 
 `wxp` は WebView ベースのオーディオプラグイン UI 基盤です。
 HTML / CSS / TypeScript でプラグイン GUI を記述し、[wry](https://github.com/tauri-apps/wry) をベースにした WebView 上で動作させます。
-WXP IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript の双方向通信を簡潔に記述できます。
+Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript の双方向通信を簡潔に記述できます。
 
 ## クイックスタート
 

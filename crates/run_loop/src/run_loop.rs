@@ -1,6 +1,7 @@
 use log::warn;
 use std::{
     fmt::Display,
+    marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     pin::pin,
     rc::Rc,
@@ -184,6 +185,21 @@ pub struct RunLoop {
     inner: Arc<RunLoopInner>,
 }
 
+/// A successful RunLoop acquisition released automatically on drop.
+///
+/// This is the transactional alternative to manually pairing [`RunLoop::init`]
+/// and [`RunLoop::deinit`]. Failed acquisition leaves the run loop state
+/// unchanged.
+pub struct RunLoopGuard {
+    _not_send: PhantomData<Rc<()>>,
+}
+
+impl Drop for RunLoopGuard {
+    fn drop(&mut self) {
+        RunLoop::deinit();
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Error {
     /// The engine-context plugin is not loaded.
@@ -246,17 +262,31 @@ impl RunLoop {
     pub fn init() -> Result<()> {
         let _guard = INIT_MUTEX.lock().unwrap();
 
-        let count = INIT_COUNT.fetch_add(1, Ordering::SeqCst);
+        let count = INIT_COUNT.load(Ordering::SeqCst);
         if count == 0 {
-            // Only initialize on the first call
             Self::initialize()?;
+            INIT_COUNT.store(1, Ordering::SeqCst);
+            return Ok(());
         }
 
         if !Self::is_run_loop_thread() {
             return Err(Error::NotRunLoopThread);
         }
 
+        INIT_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Acquires one RunLoop reference on the current thread and releases it on drop.
+    ///
+    /// Unlike manual `init()` / `deinit()` pairing at call sites, failed
+    /// acquisition is transactional: no reference count is acquired unless this
+    /// returns `Ok`.
+    pub fn acquire_on_current_thread() -> Result<RunLoopGuard> {
+        Self::init()?;
+        Ok(RunLoopGuard {
+            _not_send: PhantomData,
+        })
     }
 
     /// Forcibly rebinds the run loop to the current thread.
@@ -305,12 +335,6 @@ impl RunLoop {
 
     /// Internal only: performs the actual initialization.
     fn initialize() -> Result<()> {
-        // Record the current thread as the run loop thread
-        {
-            let mut thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
-            *thread_id = Some(thread::current().id());
-        }
-
         // Create the RunLoop instance
         let inner = Arc::new(RunLoopInner {
             platform_run_loop: Rc::new(PlatformRunLoop::new()),
@@ -321,6 +345,13 @@ impl RunLoop {
         RUN_LOOP_INSTANCE
             .set(inner)
             .map_err(|_| Error::AlreadyInitialized)?;
+
+        // Only publish the owning thread after the instance is installed, so a
+        // failed initialize does not leave a partially observable run loop.
+        {
+            let mut thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
+            *thread_id = Some(thread::current().id());
+        }
 
         // Set up MainThreadFacilitator (works even without Flutter plugin)
         MainThreadFacilitator::set_for_current_thread();

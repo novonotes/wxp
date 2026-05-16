@@ -2,3 +2,5 @@
 **/target
 webview-bridge/node_modules
 webview-bridge/dist
+AGENTS.md
+CLAUDE.md

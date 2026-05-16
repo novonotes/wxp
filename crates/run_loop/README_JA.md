@@ -1,5 +1,7 @@
 # novonotes_run_loop
 
+> English: [README.md](./README.md)
+
 プラットフォーム独立なランループインターフェースを提供する Rust クレート。
 [irondash_run_loop](https://github.com/irondash/irondash/tree/main/run_loop) をベースに、DLL 環境での安全性やエラーハンドリングなどを強化したフォークです。
 

@@ -1,8 +1,8 @@
-//! `novonotes_run_loop` 上で繰り返し callback を実行する timer。
+//! A timer that executes repeating callbacks on `novonotes_run_loop`.
 //!
-//! host callback に頼らず GUI thread 側で定期処理したい場合に使う。callback に
-//! `Send` を要求しないため、native GUI object や WebView channel のような
-//! thread-affine な値を扱いやすい。
+//! Use this when you want periodic processing on the GUI thread without relying on host callbacks.
+//! Because callbacks do not require `Send`, thread-affine values such as native GUI objects and
+//! WebView channels can be captured directly.
 
 use std::{
     cell::{Cell, RefCell},
@@ -58,24 +58,24 @@ struct TimerInner {
     callback: Box<dyn TimerCallback>,
 }
 
-/// RunLoop thread 専用の繰り返し timer。
+/// A repeating timer that must run on the RunLoop thread.
 ///
-/// 作成、開始、停止、破棄は同じ run loop thread 上で行う前提です。`stop()` または
-/// drop により次回の schedule は cancel されます。
+/// Creation, starting, stopping, and dropping must all happen on the same run loop thread.
+/// Calling `stop()` or dropping the timer cancels the next scheduled tick.
 ///
-/// RunLoop の timer cadence は OS や実行環境に依存するため、この型は指定 interval
-/// どおりの発火回数や高精度な周期を保証しません。GUI の状態反映など、遅延や間引きを
-/// 許容できる用途を想定しています。
+/// Because RunLoop timer cadence depends on the OS and runtime environment, this type does not
+/// guarantee exact fire counts or high-precision periods for a given interval. It is intended
+/// for use cases that tolerate jitter or skipped ticks, such as reflecting GUI state.
 pub struct Timer {
     inner: Rc<TimerInner>,
 }
 
 impl Timer {
-    /// 同期 callback を `interval` ごとに実行する timer を作る。
+    /// Creates a timer that calls the synchronous `callback` at each `interval`.
     ///
-    /// 作っただけでは発火しない。[`start`](Self::start) で開始する。callback は
-    /// run loop thread 上で呼ばれるため `Send` 不要で、native object をそのまま
-    /// capture できる。
+    /// The timer does not fire until [`start`](Self::start) is called. Because the callback runs
+    /// on the run loop thread, it does not need to be `Send`, so native objects can be captured
+    /// directly.
     pub fn new<F>(interval: Duration, callback: F) -> Self
     where
         F: Fn() + 'static,
@@ -90,11 +90,11 @@ impl Timer {
         }
     }
 
-    /// Callback-local state を持つ timer を簡潔に作る helper。
+    /// Helper for creating a timer that holds callback-local state.
     ///
-    /// 現在の template 本体では使っていないが、plugin ごとの GUI polling や軽量な
-    /// debounce state を追加するときに `Rc<RefCell<_>>` の boilerplate を利用者へ
-    /// 書かせないために public API として残している。
+    /// Not used in the template itself, but kept as a public API to avoid forcing callers to
+    /// write `Rc<RefCell<_>>` boilerplate when adding per-plugin GUI polling or lightweight
+    /// debounce state.
     pub fn new_with_state<T, F>(interval: Duration, initial_state: T, callback: F) -> Self
     where
         T: 'static,
@@ -107,11 +107,11 @@ impl Timer {
         })
     }
 
-    /// `interval` ごとに future を spawn する非同期版 timer。
+    /// Async variant of the timer that spawns a future at each `interval`.
     ///
-    /// tick は future の完了を待たずに次の interval を schedule する（処理が長引いて
-    /// も tick 自体は詰まらない）。一度 spawn された future は timer を drop しても
-    /// run loop 側で走り続ける点に注意。
+    /// Each tick schedules the next interval without waiting for the previous future to complete,
+    /// so long-running futures do not stall the tick cadence. Note that a future already spawned
+    /// continues running on the run loop even after the timer is dropped.
     pub fn new_async<F, Fut>(interval: Duration, callback: F) -> Self
     where
         F: Fn() -> Fut + 'static,
@@ -127,17 +127,17 @@ impl Timer {
         }
     }
 
-    /// 繰り返しを開始する。多重 start は無視される（冪等）。
+    /// Starts repeating ticks. Calling `start` again while already running is a no-op.
     ///
-    /// run loop thread 以外から呼ぶのは誤用なので debug build では panic させ、
-    /// 取り違えを早期に顕在化させる。
+    /// Calling from outside the run loop thread is a misuse; a debug-mode panic surfaces this
+    /// early.
     pub fn start(&self) {
         debug_assert!(
             RunLoop::try_current().is_ok(),
             "Timer must be started on the initialized RunLoop thread"
         );
 
-        // 既に動いている場合に再 schedule すると tick が二重化するため弾く。
+        // Re-scheduling when already running would double the tick rate; bail out.
         if self.inner.is_running.replace(true) {
             return;
         }
@@ -145,7 +145,7 @@ impl Timer {
         self.schedule_next();
     }
 
-    /// 繰り返しを停止し、予約済みの次回 tick を cancel する。再 `start` 可能。
+    /// Stops repeating ticks and cancels the next scheduled tick. The timer can be restarted.
     pub fn stop(&self) {
         self.inner.is_running.set(false);
 
@@ -154,15 +154,15 @@ impl Timer {
         }
     }
 
-    /// 現在 tick が予約され続けている状態かどうか。
+    /// Returns `true` if ticks are currently scheduled.
     pub fn is_running(&self) -> bool {
         self.inner.is_running.get()
     }
 
     fn schedule_next(&self) {
-        // `Weak` で渡すことで、scheduled tick が run loop queue に残ったまま Timer
-        // が drop されても tick 側が `upgrade` に失敗して自然に止まる。`Rc` を渡すと
-        // queue が Timer を延命してしまい drop で止められなくなる。
+        // Passing a `Weak` reference means a queued tick will fail to upgrade and stop naturally
+        // if the Timer is dropped before the tick fires. Passing an `Rc` would keep the Timer
+        // alive as long as the queue holds a reference, making drop unable to stop it.
         let weak_inner = Rc::downgrade(&self.inner);
         let interval = self.inner.interval;
 
@@ -174,16 +174,16 @@ impl Timer {
     }
 }
 
-// 1 回分の tick: callback を実行し、自身を次の interval へ再 schedule する
-// （fixed-delay 方式。固定周期ではなく callback 完了後に次を積む）。
+// One tick: execute the callback, then re-schedule for the next interval
+// (fixed-delay: the next tick is queued after callback completion, not at a fixed frequency).
 fn run_timer_tick(weak_inner: Weak<TimerInner>) {
-    // Timer が既に drop 済みなら何もしない。
+    // The Timer has already been dropped; nothing to do.
     let Some(inner) = weak_inner.upgrade() else {
         return;
     };
 
-    // schedule 後・実行前に stop された tick を握り潰す。これがないと stop した
-    // 直後に 1 回余分に発火し得る。
+    // Discard a tick that was stopped after scheduling but before execution.
+    // Without this check, one extra fire could occur immediately after stop().
     if !inner.is_running.get() {
         return;
     }
@@ -201,7 +201,7 @@ fn run_timer_tick(weak_inner: Weak<TimerInner>) {
 }
 
 impl Drop for Timer {
-    // drop だけで確実に止まるようにしておく（明示 stop の呼び忘れ対策）。
+    // Ensure the timer stops on drop even if stop() was never called explicitly.
     fn drop(&mut self) {
         self.stop();
     }

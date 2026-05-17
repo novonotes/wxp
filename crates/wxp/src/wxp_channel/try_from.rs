@@ -13,7 +13,7 @@ impl<'de> TryFromDeserializeContext<'de> for Channel {
         // Get the channel ID
         let value = cmd
             .args
-            .get(&cmd.key)
+            .get(cmd.key)
             .ok_or_else(|| Value::String(format!("Missing channel argument '{}'", cmd.key)))?;
 
         let channel_id: String = serde_json::from_value(value.clone())

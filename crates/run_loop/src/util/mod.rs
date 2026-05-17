@@ -2,9 +2,10 @@ mod blocking_variable;
 mod capsule;
 mod future_completer;
 
-pub use blocking_variable::*;
-pub use capsule::*;
-pub use future_completer::*;
+pub(crate) use blocking_variable::BlockingVariable;
+#[cfg(test)]
+pub(crate) use capsule::Capsule;
+pub(crate) use future_completer::FutureCompleter;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

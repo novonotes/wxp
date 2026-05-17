@@ -11,7 +11,7 @@ use core_foundation::{
     base::{CFRelease, CFRetain, TCFType, kCFAllocatorDefault},
     date::CFAbsoluteTimeGetCurrent,
     runloop::{
-        CFRunLoopAddSource, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopGetMain, CFRunLoopRef,
+        CFRunLoopAddSource, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRef,
         CFRunLoopRemoveTimer, CFRunLoopRunInMode, CFRunLoopSource, CFRunLoopSourceContext,
         CFRunLoopSourceCreate, CFRunLoopSourceSignal, CFRunLoopStop, CFRunLoopTimer,
         CFRunLoopTimerContext, CFRunLoopTimerRef, CFRunLoopWakeUp, kCFRunLoopCommonModes,
@@ -362,10 +362,6 @@ impl PlatformRunLoop {
         state.schedule(state_clone);
 
         handle
-    }
-
-    pub fn is_main_thread() -> bool {
-        unsafe { CFRunLoopGetCurrent() == CFRunLoopGetMain() }
     }
 
     pub fn run(&self) {

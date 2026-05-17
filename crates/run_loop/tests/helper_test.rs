@@ -6,22 +6,20 @@ use std::time::Duration;
 #[test]
 #[serial]
 fn test_success() -> Result<(), String> {
-    let result = test::run_async(async {
+    test::run_async(async {
         // A test that succeeds
         Ok(())
-    });
-    result
+    })
 }
 
 #[test]
 #[serial]
 fn test_async_wait() -> Result<(), String> {
-    let result = test::run_async(async {
+    test::run_async(async {
         // Test using RunLoop's delay
         RunLoop::current().delay(Duration::from_millis(10)).await;
         Ok(())
-    });
-    result
+    })
 }
 
 #[test]

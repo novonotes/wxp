@@ -11,7 +11,7 @@
 //! - [`RunLoop::current()`] may only be called from the run loop thread. Use [`RunLoop::sender()`] from other threads.
 //! - [`RunLoop::init()`] marks the current thread as that run loop thread. In audio plugins, call it from the host main/UI thread that receives GUI callbacks, not from CLAP entry initialization.
 //! - Always pair `init()` with `deinit()` (the implementation uses reference counting internally).
-//! - Tests have a singleton constraint and must be serialized with `#[serial_test::serial]` (see [`test_harness`]).
+//! - Tests have a singleton constraint and must be serialized with `#[serial_test::serial]`.
 
 #![allow(clippy::new_without_default)]
 
@@ -20,7 +20,9 @@ mod main_thread;
 mod run_loop;
 mod run_loop_sender;
 mod task;
+#[doc(hidden)]
 pub mod test_harness;
+#[doc(hidden)]
 pub mod test_helper;
 mod thread_id;
 
@@ -30,6 +32,5 @@ pub use run_loop_sender::*;
 pub use task::*;
 pub use thread_id::*;
 
-// Note: These modules are public but there are no API stability guarantees
-pub mod platform;
-pub mod util;
+pub(crate) mod platform;
+pub(crate) mod util;

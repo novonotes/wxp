@@ -1,7 +1,7 @@
 {
 	"name": "@novonotes/webview-bridge",
 	"version": "0.1.0-alpha.1",
-	"description": "Universal WebView bridge for Tauri apps and wry-based plugins",
+	"description": "WXP WebView IPC bridge",
 	"main": "dist/index.js",
 	"module": "dist/index.mjs",
 	"types": "dist/index.d.ts",
@@ -11,7 +11,7 @@
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"keywords": [
-		"tauri",
+		"wxp",
 		"webview",
 		"plugin",
 		"bridge",
@@ -25,18 +25,9 @@
 		"directory": "packages/webview-bridge"
 	},
 	"devDependencies": {
-		"@tauri-apps/api": "^2.6.0",
 		"@types/node": "^20.0.0",
 		"tsup": "^8.0.1",
 		"typescript": "^5.3.3"
-	},
-	"peerDependencies": {
-		"@tauri-apps/api": "^2.0.0"
-	},
-	"peerDependenciesMeta": {
-		"@tauri-apps/api": {
-			"optional": true
-		}
 	},
 	"files": [
 		"dist"

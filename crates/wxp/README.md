@@ -44,7 +44,7 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 ```
 ## Command
 
-An API similar to Tauri's `invoke` and `command`. Provides command-based bidirectional communication.
+An API similar to Tauri's `invoke` and `command`. Provides request/response communication from JavaScript to Rust.
 
 ### Async Commands
 
@@ -139,4 +139,4 @@ const channel = new Channel((message) => {
 });
 ```
 
-This implementation follows the same pattern as Tauri — use `instanceof ArrayBuffer` to distinguish binary data.
+This implementation follows the same pattern as Tauri: use `instanceof ArrayBuffer` to distinguish binary data from JSON messages.

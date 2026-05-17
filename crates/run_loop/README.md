@@ -25,13 +25,13 @@ enabling plugins to schedule and launch tasks on the main thread.
 ```rust
 use novonotes_run_loop::{RunLoop, JoinError};
 
-// Call during application/DLL initialization
+// Call on the thread that drives the UI/run loop
 RunLoop::init().expect("Failed to initialize RunLoop");
 
 // Get the RunLoop for the current thread
 let run_loop = RunLoop::current();
 
-// Call during application/DLL teardown
+// Pair with the successful init() call
 RunLoop::deinit();
 ```
 
@@ -105,7 +105,9 @@ fn main() {
 
 ## Execution Model
 
-`init()` acquires a reference to the native loop infrastructure on the current thread (creating one if none exists). In standalone applications, you must call `run()` yourself to drive the loop. In plugin environments the host already drives the loop, so `run()` is unnecessary. Callbacks and timer registrations behave identically regardless of who drives the loop.
+`init()` marks the current thread as the run loop thread and acquires a reference to the native loop infrastructure on that thread (creating one if none exists). In standalone applications, call it on the thread that will drive the application UI/run loop, then call `run()` yourself to drive the loop.
+
+In plugin environments, call `init()` from the host main/UI thread that will receive GUI callbacks. Do not call it from CLAP `clap_entry.init`: that entry point initializes the DSO, should be fast, and may be called from a scanning or worker thread. The host already drives the native loop in plugin environments, so `run()` is unnecessary. Callbacks and timer registrations behave identically regardless of who drives the loop.
 
 | Pattern               | `run()` | Who drives the loop       |
 |-----------------------|---------|---------------------------|

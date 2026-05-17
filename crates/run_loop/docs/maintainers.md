@@ -23,7 +23,7 @@ and preventing panic propagation into the DAW host.
 | Change | Reason |
 |---|---|
 | Removed thread-local storage; replaced with a global singleton | Avoids TLS destructor issues on DLL unload (see below) |
-| Reference-counted `init()` / `deinit()` | Maps to CLAP `init` / `deinit` lifecycle (see below) |
+| Reference-counted `init()` / `deinit()` | Tolerates repeated initialization calls from plugin integration code (see below) |
 | Unique Win32 Window Class name and CFRunLoop RunLoopMode name | Prevents name collisions when multiple DLLs are loaded in the same process |
 | Added `abort()` method | Enables controlled task cancellation |
 | Panic inside a task is caught with `catch_unwind` | Prevents taking down the DAW host (see below) |
@@ -49,10 +49,14 @@ with `#[serial_test::serial]`.
 
 A reference-counting scheme (`INIT_COUNT: AtomicUsize`) is used.
 
-CLAP / VST3 can call `InitDll` / `ExitDll` (or `init` / `deinit`) **multiple times**
-(e.g., when multiple plugins reference the same DLL).
-Actual initialization runs when `INIT_COUNT` transitions from 0→1; cleanup runs when it
-transitions from 1→0.
+`RunLoop::init()` is not the same lifecycle hook as CLAP `clap_entry.init`. CLAP entry
+initialization is DSO initialization, should be fast, and may be called from a scanning or worker
+thread. `RunLoop::init()` instead pins the current thread as the run loop thread, so plugin
+integrations should call it from the host main/UI thread that will receive GUI callbacks.
+
+The reference count exists because plugin integration code may still attempt repeated setup/teardown
+around GUI lifecycles or host reloads. Actual initialization runs when `INIT_COUNT` transitions
+from 0→1; cleanup runs when it transitions from 1→0.
 
 Misuse patterns:
 - Calling `deinit()` more times than `init()` → The count underflows, risking a reference to a

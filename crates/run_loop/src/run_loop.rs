@@ -343,7 +343,8 @@ impl RunLoop {
 
     /// Internal only: performs the actual initialization.
     fn initialize() -> Result<()> {
-        // Create the RunLoop instance
+        // Create the RunLoop instance.
+        #[allow(clippy::arc_with_non_send_sync)]
         let inner = Arc::new(RunLoopInner {
             platform_run_loop: Rc::new(PlatformRunLoop::new()),
             active_tasks: Mutex::new(Vec::new()),

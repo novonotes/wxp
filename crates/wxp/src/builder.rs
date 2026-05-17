@@ -304,7 +304,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     /// and specify a custom protocol URL (e.g. `my-plugin://localhost/`).
     pub fn with_url(self, url: impl Into<String>) -> Self {
         Self {
-            builder: self.builder.with_url(&url.into()),
+            builder: self.builder.with_url(url.into()),
             command_handler: self.command_handler,
         }
     }
@@ -315,7 +315,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     /// Use [`with_url`](Self::with_url) to load from a URL.
     pub fn with_html(self, html: impl Into<String>) -> Self {
         Self {
-            builder: self.builder.with_html(&html.into()),
+            builder: self.builder.with_html(html.into()),
             command_handler: self.command_handler,
         }
     }

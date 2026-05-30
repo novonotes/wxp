@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
-use tokio::sync::mpsc;
 use wry::WebView;
 
 // Channel configuration constants
@@ -43,7 +42,6 @@ pub struct Channel {
 #[derive(Debug)]
 struct WxpChannelInner {
     current_index: AtomicU32,
-    on_drop_tx: Option<mpsc::UnboundedSender<u32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +63,6 @@ impl Channel {
             webview,
             inner: Arc::new(WxpChannelInner {
                 current_index: AtomicU32::new(0),
-                on_drop_tx: None,
             }),
         }
     }
@@ -183,10 +180,6 @@ impl Channel {
 impl Drop for Channel {
     fn drop(&mut self) {
         let _ = self.send_end_message();
-
-        if let Some(ref tx) = self.inner.on_drop_tx {
-            let _ = tx.send(self.id);
-        }
     }
 }
 

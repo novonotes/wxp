@@ -3,7 +3,6 @@ use crate::WebViewDispatch;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use tokio::sync::mpsc;
 
 // Channel configuration constants
 pub(crate) const IPC_PAYLOAD_PREFIX: &str = "__CHANNEL__:";
@@ -47,7 +46,6 @@ pub struct Channel {
 #[derive(Debug)]
 struct WxpChannelInner {
     current_index: AtomicU32,
-    on_drop_tx: Option<mpsc::UnboundedSender<u32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +67,6 @@ impl Channel {
             webview,
             inner: Arc::new(WxpChannelInner {
                 current_index: AtomicU32::new(0),
-                on_drop_tx: None,
             }),
         }
     }
@@ -176,10 +173,6 @@ impl Drop for Channel {
         // Channel drop commonly races with page teardown. Ending the JS callback is useful when the
         // page is still alive, but closure is not an error the Rust side can act on here.
         let _ = self.send_end_message();
-
-        if let Some(ref tx) = self.inner.on_drop_tx {
-            let _ = tx.send(self.id);
-        }
     }
 }
 

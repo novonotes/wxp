@@ -16,6 +16,8 @@ jobs:
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_HTTP_MULTIPLEXING: false
     strategy:
       fail-fast: false
       matrix:
@@ -45,17 +47,17 @@ jobs:
             --package wxp \
             -- --check
       - name: Cargo check
-        run: cargo check --workspace --all-targets
+        run: bash .github/scripts/retry.sh cargo check --workspace --all-targets
       - name: Cargo test lib
-        run: cargo test --workspace --lib
+        run: bash .github/scripts/retry.sh cargo test --workspace --lib
       - name: Cargo test doctests
-        run: cargo test --workspace --doc
+        run: bash .github/scripts/retry.sh cargo test --workspace --doc
       - name: Cargo test integration
         if: matrix.os != 'ubuntu-latest'
-        run: cargo test --workspace --tests --examples
+        run: bash .github/scripts/retry.sh cargo test --workspace --tests --examples
       - name: Cargo test integration
         if: matrix.os == 'ubuntu-latest'
-        run: xvfb-run -a cargo test --workspace --tests --examples
+        run: bash .github/scripts/retry.sh xvfb-run -a cargo test --workspace --tests --examples
 
   webview-bridge:
     name: webview-bridge

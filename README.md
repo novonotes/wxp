@@ -6,6 +6,10 @@ It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional comm
 
 > 日本語: [README_JA.md](./README_JA.md)
 
+## Building a Plugin?
+
+Start with [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a complete wxp-based plugin project.
+
 ## Quick Start
 
 ```rust
@@ -30,9 +34,8 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 - Keep `WxpWebView` alive for as long as the UI should exist. Dropping it closes the native WebView,
   and stale command/channel work is ignored instead of extending the UI lifetime.
 
-See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate
-(including platform support and the main-thread / lifetime caveats), and
-[wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.
+See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate,
+including platform support and the main-thread / lifetime caveats.
 
 ## Repository Structure
 

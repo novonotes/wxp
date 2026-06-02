@@ -6,6 +6,10 @@
 HTML / CSS / TypeScript でプラグイン GUI を記述し、[wry](https://github.com/tauri-apps/wry) をベースにした WebView 上で動作させます。
 Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript の双方向通信を簡潔に記述できます。
 
+## プラグインを作る場合
+
+wxp を使った完成形のプラグインプロジェクトは [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) から始めてください。
+
 ## クイックスタート
 
 ```rust
@@ -30,8 +34,7 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 - UI を表示している間は `WxpWebView` を保持してください。drop すると native WebView は閉じられ、
   stale な command/channel work は UI 寿命を延ばさずに無視されます。
 
-詳しい使い方は [crates/wxp の README](./crates/wxp/README.md)、
-プラグイン全体を通した例は [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) を参照してください。
+詳しい使い方は [crates/wxp の README](./crates/wxp/README.md) を参照してください。
 
 ## このリポジトリの構成
 

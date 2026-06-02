@@ -10,21 +10,9 @@ Tauri に似た IPC（`invoke` / `Channel`）を提供し、Rust と JavaScript 
 
 wxp を使った完成形のプラグインプロジェクトは [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) から始めてください。
 
-## クイックスタート
+## ドキュメント
 
-```rust
-use std::rc::Rc;
-use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
-
-let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
-let handler = Rc::new(WxpCommandHandler::new());
-
-// `webview` は UI を表示している間 drop させないこと（後述の Caveats を参照）。
-let webview = WxpWebViewBuilder::new(&mut web_context)
-    .with_command_handler(handler)
-    .with_url("http://localhost:5173/")
-    .build_as_child(&window)?;
-```
+詳しい使い方は [crates/wxp の README](./crates/wxp/README.md) を参照してください。
 
 ## Caveats
 
@@ -33,8 +21,6 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
   `WebViewDispatch` は `Send + Sync` ですが WebView の寿命は延ばさず、結果待ちではなく enqueue します。
 - UI を表示している間は `WxpWebView` を保持してください。drop すると native WebView は閉じられ、
   stale な command/channel work は UI 寿命を延ばさずに無視されます。
-
-詳しい使い方は [crates/wxp の README](./crates/wxp/README.md) を参照してください。
 
 ## このリポジトリの構成
 

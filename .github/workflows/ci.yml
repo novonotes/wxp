@@ -16,6 +16,8 @@ jobs:
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_HTTP_MULTIPLEXING: false
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +34,8 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libx11-dev xvfb
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cargo fetch
+        run: bash .github/scripts/retry.sh cargo fetch --locked
       - name: Check Rust formatting
         run: |
           # Do not use `cargo fmt --all` here. `crates/wry` is an embedded upstream

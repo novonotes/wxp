@@ -6,21 +6,13 @@ It provides Tauri-like IPC (`invoke` / `Channel`) for concise bidirectional comm
 
 > 日本語: [README_JA.md](./README_JA.md)
 
-## Quick Start
+## Building a Plugin?
 
-```rust
-use std::rc::Rc;
-use wxp::{WebContext, WxpCommandHandler, WxpWebViewBuilder};
+Start with [wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a complete wxp-based plugin project.
 
-let mut web_context = WebContext::new(std::env::temp_dir().join("my-plugin"));
-let handler = Rc::new(WxpCommandHandler::new());
+## Documentation
 
-// `webview` must be kept alive while the UI is shown (see Caveats below).
-let webview = WxpWebViewBuilder::new(&mut web_context)
-    .with_command_handler(handler)
-    .with_url("http://localhost:5173/")
-    .build_as_child(&window)?;
-```
+See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate.
 
 ## Caveats
 
@@ -29,10 +21,6 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
   but it does not keep the WebView alive and its methods enqueue work instead of waiting for results.
 - Keep `WxpWebView` alive for as long as the UI should exist. Dropping it closes the native WebView,
   and stale command/channel work is ignored instead of extending the UI lifetime.
-
-See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough of the crate
-(including platform support and the main-thread / lifetime caveats), and
-[wrac-plugin-template](https://github.com/novonotes/wrac-plugin-template) for a full plugin project.
 
 ## Repository Structure
 

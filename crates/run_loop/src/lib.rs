@@ -8,15 +8,14 @@
 //!
 //! ## Notes
 //!
-//! - [`RunLoop::current()`] may only be called from the run loop thread. Use [`RunLoop::sender()`] from other threads.
-//! - [`RunLoop::init()`] marks the current thread as that run loop thread. In audio plugins, call it from the host main/UI thread that receives GUI callbacks, not from CLAP entry initialization.
-//! - Always pair `init()` with `deinit()` (the implementation uses reference counting internally).
+//! - [`RunLoop::init()`] marks the current thread as the run loop thread and returns a guard that releases that initialization reference on drop.
+//! - Use [`RunLoop::post()`] or [`RunLoop::call()`] from other threads.
+//! - Use [`RunLoopGuard::local()`] for thread-affine operations that may capture `!Send` state.
 //! - Tests have a singleton constraint and must be serialized with `#[serial_test::serial]`.
 
 #![allow(clippy::new_without_default)]
 
 mod handle;
-mod main_thread;
 mod run_loop;
 mod run_loop_sender;
 mod task;
@@ -26,11 +25,13 @@ pub mod test_harness;
 pub mod test_helper;
 mod thread_id;
 
-pub use handle::*;
-pub use run_loop::*;
-pub use run_loop_sender::*;
-pub use task::*;
-pub use thread_id::*;
+pub use handle::Handle;
+pub use run_loop::{Error, Result, RunLoop, RunLoopGuard, RunLoopLocal};
+#[doc(hidden)]
+pub use run_loop_sender::RunLoopSender;
+pub(crate) use task::Task;
+pub use task::{JoinError, JoinHandle};
+pub(crate) use thread_id::{SystemThreadId, get_system_thread_id};
 
 pub(crate) mod platform;
 pub(crate) mod util;

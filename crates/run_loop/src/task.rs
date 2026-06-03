@@ -50,7 +50,7 @@ impl JoinError {
 /// The future runs to completion via repeated `poll`s driven by its own
 /// `ArcWake`; the outcome is parked in `value` until a `JoinHandle` collects it,
 /// with `waker` bridging "result is ready" back to whoever awaits the handle.
-pub struct Task<T> {
+pub(crate) struct Task<T> {
     sender: RunLoopSender,
     future: UnsafeCell<Option<LocalBoxFuture<'static, T>>>,
     value: RefCell<Option<Result<T, JoinError>>>,

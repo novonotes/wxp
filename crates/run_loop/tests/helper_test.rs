@@ -1,6 +1,5 @@
-use novonotes_run_loop::{RunLoop, test_helper as test};
+use novonotes_run_loop::test_helper as test;
 use serial_test::serial;
-use std::time::Duration;
 
 // Example tests using the helper function
 #[test]
@@ -15,11 +14,7 @@ fn test_success() -> Result<(), String> {
 #[test]
 #[serial]
 fn test_async_wait() -> Result<(), String> {
-    test::run_async(async {
-        // Test using RunLoop's delay
-        RunLoop::current().delay(Duration::from_millis(10)).await;
-        Ok(())
-    })
+    test::run_async(async { Ok(()) })
 }
 
 #[test]
@@ -46,20 +41,14 @@ fn test_panic_handling() {
 #[test]
 #[serial]
 fn test_generic_return_value() {
-    let result: i32 = test::run_async(async {
-        RunLoop::current().delay(Duration::from_millis(5)).await;
-        42
-    });
+    let result: i32 = test::run_async(async { 42 });
     assert_eq!(result, 42);
 }
 
 #[test]
 #[serial]
 fn test_tuple_return() {
-    let (a, b): (String, i32) = test::run_async(async {
-        RunLoop::current().delay(Duration::from_millis(5)).await;
-        ("hello".to_string(), 123)
-    });
+    let (a, b): (String, i32) = test::run_async(async { ("hello".to_string(), 123) });
     assert_eq!(a, "hello");
     assert_eq!(b, 123);
 }

@@ -1,9 +1,11 @@
 use std::fmt::Debug;
 
-use crate::{
-    RunLoop, SystemThreadId, get_system_thread_id, main_thread::MainThreadFacilitator,
-    platform::PlatformRunLoopSender, util::BlockingVariable,
+use std::sync::{
+    Weak,
+    atomic::{AtomicBool, Ordering},
 };
+
+use crate::{SystemThreadId, get_system_thread_id, platform::PlatformRunLoopSender};
 
 /// A `Send + Clone` handle for posting callbacks onto a run loop from any thread.
 ///
@@ -12,120 +14,48 @@ use crate::{
 /// stay on its owning thread while other threads merely enqueue work for it.
 #[derive(Clone)]
 pub struct RunLoopSender {
-    inner: RunLoopSenderInner,
-}
-
-#[derive(Clone)]
-enum RunLoopSenderInner {
-    /// Targets a specific run loop captured at creation (`thread_id` is kept so
-    /// `is_same_thread` can short-circuit when already on that thread).
-    PlatformSender {
-        thread_id: SystemThreadId,
-        platform_sender: PlatformRunLoopSender,
-    },
-    /// Targets "the main thread" indirectly via `MainThreadFacilitator`. Used
-    /// when the concrete run loop is owned elsewhere (e.g. a Flutter engine).
-    MainThreadSender,
+    thread_id: SystemThreadId,
+    platform_sender: PlatformRunLoopSender,
+    shutdown_token: Weak<AtomicBool>,
 }
 
 impl Debug for RunLoopSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.inner {
-            RunLoopSenderInner::PlatformSender {
-                thread_id,
-                platform_sender: _,
-            } => f
-                .debug_struct("RunLoopSender")
-                .field("thread_id", &thread_id)
-                .finish(),
-            RunLoopSenderInner::MainThreadSender => f
-                .debug_struct("RunLoopSender")
-                .field("thread_id", &"main")
-                .finish(),
-        }
+        f.debug_struct("RunLoopSender")
+            .field("thread_id", &self.thread_id)
+            .finish()
     }
 }
 
 impl RunLoopSender {
-    pub(crate) fn new(platform_sender: PlatformRunLoopSender) -> Self {
+    pub(crate) fn new(
+        platform_sender: PlatformRunLoopSender,
+        shutdown_token: Weak<AtomicBool>,
+    ) -> Self {
         Self {
-            inner: RunLoopSenderInner::PlatformSender {
-                thread_id: get_system_thread_id(),
-                platform_sender,
-            },
+            thread_id: get_system_thread_id(),
+            platform_sender,
+            shutdown_token,
         }
     }
 
-    /// Creates sender for run loop thread (Normally main thread). This should only be called from
-    /// background threads. On run loop thread the RunLoop should create regular
-    /// sender from current run loop.
-    ///
-    /// The reason is that the run loop thread sender, when invoking on run loop thread,
-    /// may execute the callback synchronously instead of scheduling it (linux),
-    /// which is not how regular run loop sender works.
-    #[allow(unused)] // not used in tests
-    pub(crate) fn new_for_run_loop_thread() -> Self {
-        debug_assert!(!RunLoop::is_run_loop_thread());
-        Self {
-            inner: RunLoopSenderInner::MainThreadSender,
-        }
-    }
-
-    /// Returns true if sender would send the callback to current thread.
+    /// Returns true if this sender targets the current thread.
     pub fn is_same_thread(&self) -> bool {
-        match self.inner {
-            RunLoopSenderInner::PlatformSender {
-                thread_id,
-                platform_sender: _,
-            } => get_system_thread_id() == thread_id,
-            // A `MainThreadSender` is only created after the `MainThreadFacilitator`
-            // was confirmed initialized, so resolving "same thread" via the run
-            // loop thread check here cannot fail.
-            RunLoopSenderInner::MainThreadSender => RunLoop::is_run_loop_thread(),
-        }
+        get_system_thread_id() == self.thread_id
     }
 
     /// Schedules the callback to be executed on run loop and returns immediately.
-    pub fn send<F>(&self, callback: F)
+    pub fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {
-        match &self.inner {
-            RunLoopSenderInner::PlatformSender {
-                thread_id: _,
-                platform_sender,
-            } => {
-                platform_sender.send(callback);
-            }
-            RunLoopSenderInner::MainThreadSender => {
-                // `unwrap` is sound: a `MainThreadSender` is only constructed
-                // after `MainThreadFacilitator::is_main_thread()` succeeded
-                // (see `RunLoop::sender`), which means the facilitator was
-                // already initialized — via `init()` (Manual) or the Flutter
-                // engine context. So `perform_on_main_thread` cannot hit the
-                // uninitialized path here.
-                MainThreadFacilitator::perform_on_main_thread(callback).unwrap();
-            }
+        let Some(shutdown_token) = self.shutdown_token.upgrade() else {
+            return false;
+        };
+        if shutdown_token.load(Ordering::Acquire) {
+            return false;
         }
-    }
-
-    /// Schedules the callback on run loop and blocks until it is invoked.
-    /// If current thread is run loop thread the callback will be invoked immediately
-    /// (otherwise it would deadlock).
-    pub fn send_and_wait<F, R>(&self, callback: F) -> R
-    where
-        F: FnOnce() -> R + 'static + Send,
-        R: Send + 'static,
-    {
-        if self.is_same_thread() {
-            callback()
-        } else {
-            let var = BlockingVariable::<R>::new();
-            let var_clone = var.clone();
-            self.send(move || {
-                var_clone.set(callback());
-            });
-            var.get_blocking()
-        }
+        let sent = self.platform_sender.send(callback);
+        sent && !shutdown_token.load(Ordering::Acquire)
     }
 }

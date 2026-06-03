@@ -23,7 +23,7 @@ and preventing panic propagation into the DAW host.
 | Change | Reason |
 |---|---|
 | Removed thread-local storage; replaced with a global singleton | Avoids TLS destructor issues on DLL unload (see below) |
-| Reference-counted `init()` / `deinit()` | Tolerates repeated initialization calls from plugin integration code (see below) |
+| Reference-counted `init()` returning `RunLoopGuard` | Tolerates repeated initialization calls from plugin integration code while making teardown RAII-based (see below) |
 | Unique Win32 Window Class name and CFRunLoop RunLoopMode name | Prevents name collisions when multiple DLLs are loaded in the same process |
 | Added `abort()` method | Enables controlled task cancellation |
 | Panic inside a task is caught with `catch_unwind` | Prevents taking down the DAW host (see below) |
@@ -45,7 +45,7 @@ with `#[serial_test::serial]`.
 
 ---
 
-## `init` / `deinit` design
+## `init` / guard design
 
 A reference-counting scheme (`INIT_COUNT: AtomicUsize`) is used.
 
@@ -54,15 +54,17 @@ initialization is DSO initialization, should be fast, and may be called from a s
 thread. `RunLoop::init()` instead pins the current thread as the run loop thread, so plugin
 integrations should call it from the host main/UI thread that will receive GUI callbacks.
 
-The reference count exists because plugin integration code may still attempt repeated setup/teardown
-around GUI lifecycles or host reloads. Actual initialization runs when `INIT_COUNT` transitions
-from 0→1; cleanup runs when it transitions from 1→0.
+Each successful `RunLoop::init()` call returns a `RunLoopGuard`. The reference count exists because
+plugin integration code may still attempt repeated setup/teardown around GUI lifecycles or host
+reloads. Actual initialization runs when `INIT_COUNT` transitions from 0→1; cleanup runs when the
+last `RunLoopGuard` is dropped and the count transitions from 1→0.
 
 Misuse patterns:
-- Calling `deinit()` more times than `init()` → The count underflows, risking a reference to a
-  cleaned-up instance on the next `init()` (hard to detect due to `fetch_sub` wrap-around).
-- DLL unloaded without calling `deinit()` → `RunLoopInner::drop` runs a best-effort fallback, but
-  it is best-effort only. It is critical that the shutdown path does not panic.
+- Dropping a `RunLoopGuard` on a non-owner thread → invalid for thread-affine platform state.
+  `RunLoopGuard` is intentionally `!Send + !Sync` to make this a compile-time error.
+- Leaking a `RunLoopGuard` (for example via `mem::forget`) → cleanup will not run until process
+  teardown. `RunLoopInner::drop` still has a best-effort fallback, but it is best-effort only.
+  It is critical that the shutdown path does not panic.
 
 ---
 
@@ -112,8 +114,8 @@ When adding a new platform, refer to the `cfg` branches in `src/platform/mod.rs`
 
 - **Do not panic in the shutdown path**: It will take down the DAW host. Wrap with `catch_unwind`
   or ensure the implementation cannot panic.
-- **Do not carelessly change the main-thread detection logic**: `RUN_LOOP_THREAD_ID` is acquired
-  and compared in multiple places; changing it will break the consistency of `sender()`,
-  `current()`, and `is_run_loop_thread()`.
+- **Do not carelessly change run-loop-thread detection**: `RUN_LOOP_THREAD_ID` is acquired and
+  compared in multiple places; changing it will break the consistency of `post()`, `call()`,
+  `RunLoopGuard::local()`, and `is_run_loop_thread()`.
 - **Keep Win32 Window Class names and CFRunLoop RunLoopMode names unique**: Maintain the
   crate-specific prefix to prevent name collisions with `irondash` and other libraries.

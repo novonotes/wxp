@@ -1,6 +1,6 @@
 use host_window::create_window;
 use log::error;
-use novonotes_run_loop::{RunLoop, test_harness};
+use novonotes_run_loop::{RunLoop, RunLoopLocal, test_harness};
 use serde_json::json;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -17,20 +17,35 @@ fn test_web_context(name: &str) -> WebContext {
     WebContext::new(std::env::temp_dir().join(format!("wxp-test-{}-{}", std::process::id(), name)))
 }
 
+fn schedule_on_run_loop<F>(run_loop: &RunLoopLocal, duration: Duration, callback: F)
+where
+    F: FnOnce(&RunLoopLocal) + 'static,
+{
+    run_loop.schedule(duration, callback).detach();
+}
+
+fn run_app(run_loop: &RunLoopLocal) {
+    run_loop.run_app();
+}
+
+fn stop_app() {
+    RunLoop::call(|run_loop| run_loop.stop_app()).unwrap();
+}
+
 fn main() {
     test_harness::run_gui_tests(vec![
         (
             "basic command invocation",
-            test_command_basic as fn() -> std::result::Result<(), String>,
+            test_command_basic as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
         (
             "command error handling",
-            test_command_error as fn() -> std::result::Result<(), String>,
+            test_command_error as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
     ]);
 }
 
-fn test_command_basic() -> std::result::Result<(), String> {
+fn test_command_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -45,9 +60,8 @@ fn test_command_basic() -> std::result::Result<(), String> {
     let test_passed = Arc::new(AtomicBool::new(false));
     let test_passed_clone = test_passed.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 console.log('Page loaded');
                 console.log('__WXP_INTERNALS__ exists:', typeof window.__WXP_INTERNALS__ !== 'undefined');
@@ -75,64 +89,61 @@ fn test_command_basic() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Command Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let passed = test_passed_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Command Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let passed = test_passed_clone.clone();
 
-            handler.register_async("echo", |ctx| {
-                let test = ctx.arg::<String>("test").ok();
-                let num = ctx.arg::<i64>("num").ok();
-                async move { Ok::<_, &str>(json!({ "received": { "test": test, "num": num } })) }
-            });
+        handler.register_async("echo", |ctx| {
+            let test = ctx.arg::<String>("test").ok();
+            let num = ctx.arg::<i64>("num").ok();
+            async move { Ok::<_, &str>(json!({ "received": { "test": test, "num": num } })) }
+        });
 
-            handler.register_async("add", |ctx| {
-                let a = ctx.arg::<f64>("a").unwrap_or(0.0);
-                let b = ctx.arg::<f64>("b").unwrap_or(0.0);
-                async move { Ok::<_, &str>(json!({ "result": a + b })) }
-            });
+        handler.register_async("add", |ctx| {
+            let a = ctx.arg::<f64>("a").unwrap_or(0.0);
+            let b = ctx.arg::<f64>("b").unwrap_or(0.0);
+            async move { Ok::<_, &str>(json!({ "result": a + b })) }
+        });
 
-            handler.register_async("report", move |ctx| {
-                if let Ok(result) = ctx.arg::<bool>("passed") {
-                    passed.store(result, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report", move |ctx| {
+            if let Ok(result) = ctx.arg::<bool>("passed") {
+                passed.store(result, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("command-basic");
+        let mut web_context = test_web_context("command-basic");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if test_passed.load(Ordering::SeqCst) {
         Ok(())
@@ -141,7 +152,7 @@ fn test_command_basic() -> std::result::Result<(), String> {
     }
 }
 
-fn test_command_error() -> std::result::Result<(), String> {
+fn test_command_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -156,9 +167,8 @@ fn test_command_error() -> std::result::Result<(), String> {
     let error_caught = Arc::new(AtomicBool::new(false));
     let error_caught_clone = error_caught.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 console.log('Error test page loaded');
 
@@ -174,56 +184,53 @@ fn test_command_error() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Error Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let caught = error_caught_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Error Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let caught = error_caught_clone.clone();
 
-            handler.register_async("fail", |_| async move {
-                Err::<serde_json::Value, _>("This command always fails")
-            });
+        handler.register_async("fail", |_| async move {
+            Err::<serde_json::Value, _>("This command always fails")
+        });
 
-            handler.register_async("report", move |ctx| {
-                if let Ok(result) = ctx.arg::<bool>("caught") {
-                    caught.store(result, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report", move |ctx| {
+            if let Ok(result) = ctx.arg::<bool>("caught") {
+                caught.store(result, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("command-error");
+        let mut web_context = test_web_context("command-error");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if error_caught.load(Ordering::SeqCst) {
         Ok(())

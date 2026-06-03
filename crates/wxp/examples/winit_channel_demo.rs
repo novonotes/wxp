@@ -246,7 +246,7 @@ impl App {
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    RunLoop::init().unwrap();
+    let _guard = RunLoop::init().unwrap();
     // Create the event loop
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -256,7 +256,5 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Run the event loop
     event_loop.run_app(&mut app)?;
-
-    RunLoop::deinit();
     Ok(())
 }

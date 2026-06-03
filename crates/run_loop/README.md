@@ -23,16 +23,13 @@ enabling plugins to schedule and launch tasks on the main thread.
 ### Initialization
 
 ```rust
-use novonotes_run_loop::{RunLoop, JoinError};
+use novonotes_run_loop::{JoinError, RunLoop};
 
 // Call on the thread that drives the UI/run loop
-RunLoop::init().expect("Failed to initialize RunLoop");
+let guard = RunLoop::init().expect("Failed to initialize RunLoop");
 
-// Get the RunLoop for the current thread
-let run_loop = RunLoop::current();
-
-// Pair with the successful init() call
-RunLoop::deinit();
+// Use this for thread-affine operations on the run loop thread
+let run_loop = guard.local();
 ```
 
 ### Scheduling Tasks
@@ -40,10 +37,8 @@ RunLoop::deinit();
 ```rust
 use std::time::Duration;
 
-let run_loop = RunLoop::current();
-
 // Schedule execution after 10 seconds
-let handle = run_loop.schedule(Duration::from_secs(10), || {
+let handle = run_loop.schedule(Duration::from_secs(10), |_| {
     println!("10 seconds have passed");
 });
 
@@ -58,7 +53,6 @@ handle.detach();
 // Spawn a task and await its result
 let handle = run_loop.spawn(async {
     // Async work
-    RunLoop::current().delay(Duration::from_secs(1)).await;
     42
 });
 
@@ -73,7 +67,7 @@ match handle.await {
 ### Cross-Thread Communication
 
 `RunLoop::init()` marks the current thread as the run loop thread.
-Use `RunLoop::sender()` to send callbacks from other threads to the run loop thread.
+Use `RunLoop::post()` to send callbacks from other threads to the run loop thread.
 
 ```rust
 use std::thread;
@@ -83,12 +77,13 @@ fn main() {
 
     // Send a callback from another thread to the run loop thread
     thread::spawn(move || {
-        let sender = RunLoop::sender();
-        // Sent callbacks are executed asynchronously on the run loop thread.
-        sender.send(|| {
+        // Posted callbacks are executed asynchronously on the run loop thread.
+        RunLoop::post(|run_loop| {
             assert!(RunLoop::is_run_loop_thread());
             println!("Executing on run loop thread");
-        });
+            run_loop.stop();
+        })
+        .unwrap();
     });
 }
 ```

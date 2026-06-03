@@ -17,7 +17,6 @@ use serial_test::serial;
 fn test_example() {
     test::run_async(async {
         // Write async test code here
-        RunLoop::current().delay(Duration::from_millis(10)).await;
         42  // Any type can be returned
     });
 }
@@ -46,7 +45,7 @@ harness = false  # Disable the standard harness
 ### Usage
 
 ```rust
-use novonotes_run_loop::test_harness::run_gui_tests;
+use novonotes_run_loop::{RunLoopLocal, test_harness::run_gui_tests};
 
 fn main() {
     run_gui_tests(vec![
@@ -55,17 +54,17 @@ fn main() {
     ]);
 }
 
-fn test_function() -> Result<(), String> {
-    RunLoop::current().schedule(Duration::ZERO, move || {
+fn test_function(run_loop: &RunLoopLocal) -> Result<(), String> {
+    run_loop.schedule(Duration::ZERO, move |run_loop| {
         // Some GUI test code
         assert_eq!(1 + 1, 2);
 
-        RunLoop::current().stop_app();
+        run_loop.stop_app();
     })
     .detach();
 
     // run_app blocks until stop_app is called.
-    RunLoop::current().run_app();
+    run_loop.run_app();
     Ok(())
 }
 ```

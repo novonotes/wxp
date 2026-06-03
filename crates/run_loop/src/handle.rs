@@ -11,7 +11,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub fn new<F>(on_cancel: F) -> Self
+    pub(crate) fn new<F>(on_cancel: F) -> Self
     where
         F: FnOnce() + 'static,
     {

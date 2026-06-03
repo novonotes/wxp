@@ -41,11 +41,6 @@ log = { workspace = true }
 [dev-dependencies]
 serial_test = { workspace = true }
 pollster = "0.4"
-criterion = "0.5"
-
-[[bench]]
-name = "latency"
-harness = false
 
 [lints.rust]
 unreachable_pub = "allow"

@@ -1,5 +1,6 @@
 use super::handler::WxpCommandHandler;
 use novonotes_run_loop::RunLoop;
+use send_wrapper::SendWrapper;
 use std::rc::Rc;
 use wry::{WebViewBuilder, http::Request};
 
@@ -15,14 +16,17 @@ pub(crate) fn setup_invoke_handler_internal(
     handler: Rc<WxpCommandHandler>,
 ) -> WebViewBuilder {
     builder.with_ipc_handler(move |req: Request<String>| {
-        let handler = handler.clone();
+        let handler = SendWrapper::new(handler.clone());
         let body = req.body().clone();
 
-        let handle = RunLoop::current().spawn(async move {
-            handler.handle_ipc(&body).await;
+        let _ = RunLoop::post(move |run_loop| {
+            let handle = run_loop.spawn(async move {
+                let handler = handler.take();
+                handler.handle_ipc(&body).await;
+            });
+            // Detach: the command resolves the JS promise itself, so nothing here
+            // needs the result and awaiting it would defeat the purpose.
+            drop(handle);
         });
-        // Detach: the command resolves the JS promise itself, so nothing here
-        // needs the result and awaiting it would defeat the purpose.
-        drop(handle);
     })
 }

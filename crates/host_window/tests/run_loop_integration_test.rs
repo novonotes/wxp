@@ -4,14 +4,13 @@
 // reject. This also verifies host_window and the run loop cooperate end to end.
 use host_window::create_window;
 use log::error;
-use novonotes_run_loop::RunLoop;
+use novonotes_run_loop::{RunLoop, RunLoopLocal};
 use std::time::Duration;
 
 fn main() {
     println!("Running wxp GUI tests on main thread...");
 
-    // Initialize RunLoop
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
 
     // Run tests
     let mut failed = false;
@@ -19,7 +18,9 @@ fn main() {
     // Isolate the test so a panic is reported as a failure and still lets the
     // run loop be torn down cleanly below, rather than aborting the process.
     print!("Testing window creation... ");
-    match std::panic::catch_unwind(|| test_simple_window()) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        test_simple_window(guard.local())
+    })) {
         Ok(_) => println!("✓"),
         Err(e) => {
             println!("✗");
@@ -27,9 +28,6 @@ fn main() {
             failed = true;
         }
     }
-
-    // Clean up RunLoop
-    RunLoop::deinit();
 
     if failed {
         error!("\nSome tests failed!");
@@ -39,20 +37,20 @@ fn main() {
     }
 }
 
-fn test_simple_window() {
+fn test_simple_window(run_loop: &RunLoopLocal) {
     let window_handle = create_window("Test Window", 400.0, 300.0);
     window_handle.show();
 
     // Run the loop briefly so the window actually reaches the screen, then stop
     // it from within so the test terminates instead of blocking forever.
     // `detach` lets the scheduled task outlive its handle.
-    let mut handle = RunLoop::current().schedule(Duration::from_secs(1), move || {
+    let mut handle = run_loop.schedule(Duration::from_secs(1), move |run_loop| {
         println!("Window test completed");
-        RunLoop::current().stop_app();
+        run_loop.stop_app();
     });
     handle.detach();
 
-    RunLoop::current().run_app();
+    run_loop.run_app();
 
     window_handle.destroy();
 }

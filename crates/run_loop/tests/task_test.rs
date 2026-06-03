@@ -1,25 +1,23 @@
-use novonotes_run_loop::{JoinError, RunLoop, spawn};
+use novonotes_run_loop::{JoinError, RunLoop};
 use serial_test::serial;
 use std::time::Duration;
 
 #[test]
 #[serial]
 fn test_task_normal_completion() {
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
     use std::sync::{Arc, Mutex};
 
     let result = Arc::new(Mutex::new(None));
     let result_clone = result.clone();
 
-    // Launch a task using the spawn function
-    spawn(async move {
+    run_loop.spawn(async move {
         *result_clone.lock().unwrap() = Some(42);
     });
 
-    // Run the RunLoop to process the task
-    let run_loop = RunLoop::current();
-    let mut handle = run_loop.schedule(Duration::from_millis(50), move || {
-        RunLoop::current().stop();
+    let mut handle = run_loop.schedule(Duration::from_millis(50), move |run_loop| {
+        run_loop.stop();
     });
     handle.detach();
 
@@ -28,22 +26,18 @@ fn test_task_normal_completion() {
     // Verify the result
     let res = result.lock().unwrap().take();
     assert_eq!(res, Some(42));
-
-    RunLoop::deinit();
 }
 
 #[test]
 #[serial]
 fn test_task_abort() {
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
     use futures::Future;
     use std::task::{Context, Poll};
 
-    let run_loop = RunLoop::current();
-
     let handle = run_loop.spawn(async {
-        // Long-running task
-        RunLoop::current().delay(Duration::from_secs(10)).await;
+        std::future::pending::<()>().await;
         42
     });
 
@@ -62,17 +56,15 @@ fn test_task_abort() {
         }
         Poll::Pending => panic!("An aborted task should complete immediately"),
     }
-
-    RunLoop::deinit();
 }
 
 #[test]
 #[serial]
 fn test_task_panic() {
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
     use std::sync::{Arc, Mutex};
 
-    let run_loop = RunLoop::current();
     let captured_panic = Arc::new(Mutex::new(None));
     let captured_panic_clone = captured_panic.clone();
 
@@ -84,7 +76,7 @@ fn test_task_panic() {
     run_loop.spawn(async move {
         let result = handle.await;
         *captured_panic_clone.lock().unwrap() = Some(result);
-        RunLoop::current().stop();
+        RunLoop::call(|run_loop| run_loop.stop()).unwrap();
     });
 
     run_loop.run();
@@ -101,17 +93,15 @@ fn test_task_panic() {
             assert_eq!(*msg, "panic inside task");
         }
     }
-
-    RunLoop::deinit();
 }
 
 #[test]
 #[serial]
 fn test_multiple_tasks_mixed_results() {
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
     use std::sync::{Arc, Mutex};
 
-    let run_loop = RunLoop::current();
     let results = Arc::new(Mutex::new(vec![]));
 
     // Task that completes normally
@@ -119,7 +109,7 @@ fn test_multiple_tasks_mixed_results() {
 
     // Task that gets aborted
     let handle2 = run_loop.spawn(async {
-        RunLoop::current().delay(Duration::from_secs(10)).await;
+        std::future::pending::<()>().await;
         2
     });
     handle2.abort();
@@ -141,7 +131,7 @@ fn test_multiple_tasks_mixed_results() {
         res.push(("handle2", r2));
         res.push(("handle3", r3));
 
-        RunLoop::current().stop();
+        RunLoop::call(|run_loop| run_loop.stop()).unwrap();
     });
 
     run_loop.run();
@@ -161,6 +151,4 @@ fn test_multiple_tasks_mixed_results() {
     // handle3: panicked
     assert!(res[2].1.is_err());
     assert!(res[2].1.as_ref().unwrap_err().is_panic());
-
-    RunLoop::deinit();
 }

@@ -1,5 +1,5 @@
 // Custom test harness — helper for GUI integration tests
-use crate::RunLoop;
+use crate::{RunLoop, RunLoopLocal};
 use log::{error, info};
 
 /// Harness that runs multiple GUI tests sequentially.
@@ -25,24 +25,24 @@ use log::{error, info};
 ///
 pub fn run_gui_tests<F>(tests: Vec<(&str, F)>)
 where
-    F: FnOnce() -> Result<(), String>,
+    F: FnOnce(&RunLoopLocal) -> Result<(), String>,
 {
     info!("Running GUI tests on main thread...");
 
     // Initialize RunLoop
-    match RunLoop::init() {
-        Ok(_) => {}
+    let guard = match RunLoop::init() {
+        Ok(guard) => guard,
         Err(e) => {
             error!("Failed to initialize RunLoop: {:?}", e);
             std::process::exit(1);
         }
-    }
+    };
 
     let mut failed = false;
 
     for (name, test_fn) in tests {
         print!("Testing {}... ", name);
-        match test_fn() {
+        match test_fn(guard.local()) {
             Ok(_) => println!("✓"),
             Err(e) => {
                 println!("✗");
@@ -51,9 +51,6 @@ where
             }
         }
     }
-
-    // Clean up RunLoop
-    RunLoop::deinit();
 
     if failed {
         error!("Some tests failed!");

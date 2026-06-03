@@ -87,7 +87,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 </html>"#;
 
 fn main() -> wry::Result<()> {
-    RunLoop::init().unwrap();
+    let _guard = RunLoop::init().unwrap();
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
@@ -158,7 +158,6 @@ fn main() -> wry::Result<()> {
                 ..
             } => {
                 *control_flow = ControlFlow::Exit;
-                RunLoop::deinit();
             }
             Event::UserEvent(user_event) => {
                 match user_event {

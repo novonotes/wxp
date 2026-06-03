@@ -23,16 +23,13 @@
 ### 初期化
 
 ```rust
-use novonotes_run_loop::{RunLoop, JoinError};
+use novonotes_run_loop::{JoinError, RunLoop};
 
 // UI/run loop を駆動するスレッドで実行
-RunLoop::init().expect("RunLoop の初期化に失敗");
+let guard = RunLoop::init().expect("RunLoop の初期化に失敗");
 
-// 現在のスレッドのRunLoopを取得
-let run_loop = RunLoop::current();
-
-// 成功した init() 呼び出しと対応させる
-RunLoop::deinit();
+// run loop スレッド上の thread-affine 操作に使用
+let run_loop = guard.local();
 ```
 
 ### タスクのスケジューリング
@@ -40,10 +37,8 @@ RunLoop::deinit();
 ```rust
 use std::time::Duration;
 
-let run_loop = RunLoop::current();
-
 // 10秒後の実行をスケジュール
-let handle = run_loop.schedule(Duration::from_secs(10), || {
+let handle = run_loop.schedule(Duration::from_secs(10), |_| {
     println!("10秒経過しました");
 });
 
@@ -58,7 +53,6 @@ handle.detach();
 // タスクをスポーンして結果を待機
 let handle = run_loop.spawn(async {
     // 非同期処理
-    RunLoop::current().delay(Duration::from_secs(1)).await;
     42
 });
 
@@ -73,7 +67,7 @@ match handle.await {
 ### スレッド間通信
 
 RunLoop は初期化されたスレッドを RunLoop スレッドとしてマークします。
-別スレッドから RunLoop スレッドへのコールバック送信は `RunLoop::sender()` を使用します。
+別スレッドから RunLoop スレッドへのコールバック送信は `RunLoop::post()` を使用します。
 
 ```rust
 use std::thread;
@@ -83,12 +77,13 @@ fn main() {
 
     // 別スレッドからRunLoopスレッドにコールバックを送信
     thread::spawn(move || {
-        let sender = RunLoop::sender();
-        // 送信されたコールバックは RunLoop スレッドで非同期実行されます。
-        sender.send(|| {
+        // post されたコールバックは RunLoop スレッドで非同期実行されます。
+        RunLoop::post(|run_loop| {
             assert!(RunLoop::is_run_loop_thread());
             println!("RunLoopスレッドで実行");
-        });
+            run_loop.stop();
+        })
+        .unwrap();
     });
 }
 ```

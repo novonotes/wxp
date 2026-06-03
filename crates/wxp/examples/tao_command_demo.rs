@@ -49,7 +49,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 </html>"#;
 
 fn main() -> wry::Result<()> {
-    RunLoop::init().unwrap();
+    let _guard = RunLoop::init().unwrap();
     let event_loop = EventLoop::new();
 
     let window_width = 600.0;
@@ -118,9 +118,6 @@ fn main() -> wry::Result<()> {
         } = event
         {
             *control_flow = ControlFlow::Exit;
-            // Pair with the init() above so the run loop is torn down before
-            // the process exits.
-            RunLoop::deinit();
         }
     });
 }

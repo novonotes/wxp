@@ -54,8 +54,8 @@ struct Resources {
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    // Initialize RunLoop
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
 
     // Create a command handler
     let handler = Rc::new(WxpCommandHandler::new());
@@ -83,7 +83,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // `main` is about to block in `run_app`, so defer creation onto the loop
     // (Duration::ZERO = "as soon as it starts spinning"); `detach` lets the
     // scheduled work outlive its handle.
-    let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
+    let mut handle = run_loop.schedule(Duration::ZERO, move |_| {
         // Create window
         let window_width = 600.0;
         let window_height = 400.0;
@@ -122,10 +122,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     handle.detach();
 
     // Run the app
-    RunLoop::current().run_app();
-
-    // Resources are automatically dropped
-    RunLoop::deinit();
+    run_loop.run_app();
 
     Ok(())
 }

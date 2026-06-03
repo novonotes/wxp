@@ -85,8 +85,8 @@ struct Resources {
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    // Initialize RunLoop
-    RunLoop::init().unwrap();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
 
     // Create a command handler
     let handler = Rc::new(WxpCommandHandler::new());
@@ -108,33 +108,40 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             // Schedule message sending on the RunLoop
             for i in 1..=10 {
                 let channel_clone = channel.clone();
-                let mut handle =
-                    RunLoop::current().schedule(Duration::from_millis(i as u64 * 500), move || {
-                        let message = json!({
-                            "count": i,
-                            "message": format!("Streaming message #{}", i),
-                            "timestamp": chrono::Local::now().format("%H:%M:%S").to_string()
-                        });
+                RunLoop::post(move |run_loop| {
+                    run_loop
+                        .schedule(Duration::from_millis(i as u64 * 500), move |_| {
+                            let message = json!({
+                                "count": i,
+                                "message": format!("Streaming message #{}", i),
+                                "timestamp": chrono::Local::now().format("%H:%M:%S").to_string()
+                            });
 
-                        info!("Sending message #{}", i);
+                            info!("Sending message #{}", i);
 
-                        if let Err(e) = channel_clone.send(message) {
-                            info!("Failed to send message #{}: {:?}", i, e);
-                        }
-                    });
-                handle.detach();
+                            if let Err(e) = channel_clone.send(message) {
+                                info!("Failed to send message #{}: {:?}", i, e);
+                            }
+                        })
+                        .detach();
+                })
+                .unwrap();
             }
 
             // Completion message
             let channel_clone = channel.clone();
-            let mut handle = RunLoop::current().schedule(Duration::from_millis(5500), move || {
-                info!("Streaming completed");
-                let _ = channel_clone.send(json!({
-                    "done": true,
-                    "message": "Streaming completed!"
-                }));
-            });
-            handle.detach();
+            RunLoop::post(move |run_loop| {
+                run_loop
+                    .schedule(Duration::from_millis(5500), move |_| {
+                        info!("Streaming completed");
+                        let _ = channel_clone.send(json!({
+                            "done": true,
+                            "message": "Streaming completed!"
+                        }));
+                    })
+                    .detach();
+            })
+            .unwrap();
 
             Ok::<_, &str>(json!({
                 "status": "streaming_started",
@@ -149,7 +156,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Build the WebView on the run loop thread (it is thread-affine) just
     // before `main` blocks in `run_app`.
-    let mut handle = RunLoop::current().schedule(Duration::ZERO, move || {
+    let mut handle = run_loop.schedule(Duration::ZERO, move |_| {
         // Create window
         let window_width = 600.0;
         let window_height = 500.0;
@@ -188,10 +195,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     handle.detach();
 
     // Run the app
-    RunLoop::current().run_app();
-
-    // Resources are automatically dropped
-    RunLoop::deinit();
+    run_loop.run_app();
 
     Ok(())
 }

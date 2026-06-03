@@ -344,7 +344,7 @@ impl PlatformRunLoopSender {
         // which is not expected and may lead to deadlocks.
         if get_system_thread_id() == self.thread_id {
             assert!(unsafe { g_main_context_is_owner(self.context.0) == GTRUE });
-            // Schedule directly via g_timeout_source without using RunLoop::current()
+            // Schedule directly via g_timeout_source without entering the RunLoop facade.
             unsafe {
                 unsafe extern "C" fn sender_trampoline<F: FnOnce() + 'static>(
                     func: gpointer,

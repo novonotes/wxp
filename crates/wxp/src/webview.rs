@@ -38,6 +38,34 @@ pub struct WebViewDispatch {
     sender: RunLoopSender,
 }
 
+struct AbandonedPostCleanup<C: FnOnce() + Send + 'static> {
+    callback: Option<C>,
+}
+
+impl<C: FnOnce() + Send + 'static> AbandonedPostCleanup<C> {
+    fn new(callback: C) -> Self {
+        Self {
+            callback: Some(callback),
+        }
+    }
+
+    fn run(&mut self) {
+        if let Some(callback) = self.callback.take() {
+            callback();
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.callback = None;
+    }
+}
+
+impl<C: FnOnce() + Send + 'static> Drop for AbandonedPostCleanup<C> {
+    fn drop(&mut self) {
+        self.run();
+    }
+}
+
 const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}
     let _ = assert_send_sync::<WebViewDispatch>;
@@ -58,12 +86,12 @@ impl std::fmt::Debug for WebViewDispatch {
 impl WxpWebView {
     /// Creates a new WebView owner.
     pub(crate) fn new(webview: WebView) -> Result<Self> {
-        // WebViewDispatch posts back to the current RunLoop, so creating an owner without a
-        // registered RunLoop would produce handles that cannot safely marshal UI work.
-        RunLoop::try_current().map_err(|_| Error::RunLoopNotInitialized)?;
+        if !RunLoop::is_run_loop_thread() {
+            return Err(Error::RunLoopNotInitialized);
+        }
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
-            sender: RunLoop::sender(),
+            sender: RunLoop::sender().map_err(|_| Error::RunLoopNotInitialized)?,
             _not_send_sync: PhantomData,
         })
     }
@@ -150,23 +178,25 @@ impl WebViewDispatch {
 
         let inner = self.inner.clone();
         let run = move || {
+            let mut cleanup = AbandonedPostCleanup::new(on_webview_closed);
             let Some(webview) = inner.upgrade() else {
                 // The owner can be dropped after a cross-thread post was accepted but before the
                 // run loop executes it. Let callers clean up side data for that abandoned post.
-                on_webview_closed();
+                cleanup.run();
                 return;
             };
             if let Err(error) = op(&webview.borrow()) {
                 log::error!("wxp WebView {operation} failed: {error}");
             }
+            cleanup.disarm();
         };
 
         if self.sender.is_same_thread() {
             // Running inline preserves same-thread WebView error reporting and avoids queueing work
             // behind the command currently servicing the WebView.
             run();
-        } else {
-            self.sender.send(run);
+        } else if !self.sender.send(run) {
+            return Err(Error::RunLoopNotInitialized);
         }
 
         Ok(())

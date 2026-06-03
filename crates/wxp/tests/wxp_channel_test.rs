@@ -1,6 +1,6 @@
 use host_window::create_window;
 use log::error;
-use novonotes_run_loop::{RunLoop, test_harness};
+use novonotes_run_loop::{RunLoop, RunLoopLocal, test_harness};
 use serde_json::json;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -18,32 +18,47 @@ fn test_web_context(name: &str) -> WebContext {
     WebContext::new(std::env::temp_dir().join(format!("wxp-test-{}-{}", std::process::id(), name)))
 }
 
+fn schedule_on_run_loop<F>(run_loop: &RunLoopLocal, duration: Duration, callback: F)
+where
+    F: FnOnce(&RunLoopLocal) + 'static,
+{
+    run_loop.schedule(duration, callback).detach();
+}
+
+fn run_app(run_loop: &RunLoopLocal) {
+    run_loop.run_app();
+}
+
+fn stop_app() {
+    RunLoop::call(|run_loop| run_loop.stop_app()).unwrap();
+}
+
 fn main() {
     test_harness::run_gui_tests(vec![
         (
             "channel error handling",
-            test_channel_error as fn() -> std::result::Result<(), String>,
+            test_channel_error as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
         (
             "small json message handling",
-            test_channel_json_small as fn() -> std::result::Result<(), String>,
+            test_channel_json_small as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
         (
             "large json message handling",
-            test_channel_json_large as fn() -> std::result::Result<(), String>,
+            test_channel_json_large as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
         (
             "small binary message handling",
-            test_channel_binary_small as fn() -> std::result::Result<(), String>,
+            test_channel_binary_small as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
         (
             "large binary message handling",
-            test_channel_binary_large as fn() -> std::result::Result<(), String>,
+            test_channel_binary_large as fn(&RunLoopLocal) -> std::result::Result<(), String>,
         ),
     ]);
 }
 
-fn test_channel_error() -> std::result::Result<(), String> {
+fn test_channel_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -58,9 +73,8 @@ fn test_channel_error() -> std::result::Result<(), String> {
     let error_caught = Arc::new(AtomicBool::new(false));
     let error_caught_clone = error_caught.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
                     await window.invoke('bad_channel', {});
@@ -73,57 +87,54 @@ fn test_channel_error() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Channel Error Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let caught = error_caught_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Channel Error Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let caught = error_caught_clone.clone();
 
-            handler.register_async("bad_channel", |_| async move {
-                Err::<serde_json::Value, _>("Channel parameter is required")
-            });
+        handler.register_async("bad_channel", |_| async move {
+            Err::<serde_json::Value, _>("Channel parameter is required")
+        });
 
-            handler.register_async("report", move |ctx| {
-                if let Ok(result) = ctx.arg::<bool>("caught") {
-                    caught.store(result, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report", move |ctx| {
+            if let Ok(result) = ctx.arg::<bool>("caught") {
+                caught.store(result, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("channel-error");
+        let mut web_context = test_web_context("channel-error");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_devtools(true)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_devtools(true)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if error_caught.load(Ordering::SeqCst) {
         Ok(())
@@ -132,7 +143,7 @@ fn test_channel_error() -> std::result::Result<(), String> {
     }
 }
 
-fn test_channel_json_small() -> std::result::Result<(), String> {
+fn test_channel_json_small(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -147,9 +158,8 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
     let message_received = Arc::new(AtomicBool::new(false));
     let message_received_clone = message_received.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
                     // Wrap message reception in a Promise
@@ -182,70 +192,67 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Small JSON Message Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let received = message_received_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Small JSON Message Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let received = message_received_clone.clone();
 
-            handler.register_async("send_small_json", move |ctx| {
-                use wxp::Channel;
-                let channel = ctx.arg::<Channel>("ch").unwrap();
+        handler.register_async("send_small_json", move |ctx| {
+            use wxp::Channel;
+            let channel = ctx.arg::<Channel>("ch").unwrap();
 
-                async move {
-                    // Send a small JSON message
-                    let small_message = json!({
-                        "type": "small",
-                        "data": "test",
-                        "timestamp": 123456789
-                    });
+            async move {
+                // Send a small JSON message
+                let small_message = json!({
+                    "type": "small",
+                    "data": "test",
+                    "timestamp": 123456789
+                });
 
-                    channel.send(small_message).map_err(|e| e.to_string())?;
-                    Ok::<_, String>(json!({ "status": "sent" }))
-                }
-            });
+                channel.send(small_message).map_err(|e| e.to_string())?;
+                Ok::<_, String>(json!({ "status": "sent" }))
+            }
+        });
 
-            handler.register_async("report", move |ctx| {
-                if let Ok(r) = ctx.arg::<bool>("received") {
-                    received.store(r, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report", move |ctx| {
+            if let Ok(r) = ctx.arg::<bool>("received") {
+                received.store(r, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("channel-json-small");
+        let mut web_context = test_web_context("channel-json-small");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_devtools(true)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_devtools(true)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if message_received.load(Ordering::SeqCst) {
         Ok(())
@@ -254,7 +261,7 @@ fn test_channel_json_small() -> std::result::Result<(), String> {
     }
 }
 
-fn test_channel_json_large() -> std::result::Result<(), String> {
+fn test_channel_json_large(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -269,9 +276,8 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
     let large_message_received = Arc::new(AtomicBool::new(false));
     let large_message_received_clone = large_message_received.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
                     // Wrap message reception in a Promise
@@ -310,74 +316,71 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Large Message Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let received = large_message_received_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Large Message Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let received = large_message_received_clone.clone();
 
-            handler.register_async("send_large", move |ctx| {
-                use wxp::Channel;
-                let channel = ctx.arg::<Channel>("ch").unwrap();
+        handler.register_async("send_large", move |ctx| {
+            use wxp::Channel;
+            let channel = ctx.arg::<Channel>("ch").unwrap();
 
-                async move {
-                    // Create a message larger than MAX_JSON_DIRECT_EXECUTE_THRESHOLD (8192 bytes)
-                    let large_data = "x".repeat(10000);
-                    let large_message = json!({
-                        "type": "large",
-                        "data": large_data,
-                        "metadata": {
-                            "size": 10000,
-                            "test": "This message should trigger the large message handling path"
-                        }
-                    });
+            async move {
+                // Create a message larger than MAX_JSON_DIRECT_EXECUTE_THRESHOLD (8192 bytes)
+                let large_data = "x".repeat(10000);
+                let large_message = json!({
+                    "type": "large",
+                    "data": large_data,
+                    "metadata": {
+                        "size": 10000,
+                        "test": "This message should trigger the large message handling path"
+                    }
+                });
 
-                    channel.send(large_message).map_err(|e| e.to_string())?;
-                    Ok::<_, String>(json!({ "status": "sent" }))
-                }
-            });
+                channel.send(large_message).map_err(|e| e.to_string())?;
+                Ok::<_, String>(json!({ "status": "sent" }))
+            }
+        });
 
-            handler.register_async("report_large", move |ctx| {
-                if let Ok(r) = ctx.arg::<bool>("received") {
-                    received.store(r, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report_large", move |ctx| {
+            if let Ok(r) = ctx.arg::<bool>("received") {
+                received.store(r, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("channel-json-large");
+        let mut web_context = test_web_context("channel-json-large");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_devtools(true)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_devtools(true)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report_large was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report_large was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if large_message_received.load(Ordering::SeqCst) {
         Ok(())
@@ -386,7 +389,7 @@ fn test_channel_json_large() -> std::result::Result<(), String> {
     }
 }
 
-fn test_channel_binary_small() -> std::result::Result<(), String> {
+fn test_channel_binary_small(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -401,9 +404,8 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
     let binary_message_received = Arc::new(AtomicBool::new(false));
     let binary_message_received_clone = binary_message_received.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
                     // Wrap message reception in a Promise
@@ -448,66 +450,63 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Small Binary Message Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let received = binary_message_received_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Small Binary Message Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let received = binary_message_received_clone.clone();
 
-            handler.register_async("send_binary_small", move |ctx| {
-                use wxp::Channel;
-                let channel = ctx.arg::<Channel>("ch").unwrap();
+        handler.register_async("send_binary_small", move |ctx| {
+            use wxp::Channel;
+            let channel = ctx.arg::<Channel>("ch").unwrap();
 
-                async move {
-                    // Send small binary message (100 bytes)
-                    let small_data: Vec<u8> = (0..100u8).collect();
-                    channel.send_bytes(small_data).map_err(|e| e.to_string())?;
+            async move {
+                // Send small binary message (100 bytes)
+                let small_data: Vec<u8> = (0..100u8).collect();
+                channel.send_bytes(small_data).map_err(|e| e.to_string())?;
 
-                    Ok::<_, String>(json!({ "status": "sent" }))
-                }
-            });
+                Ok::<_, String>(json!({ "status": "sent" }))
+            }
+        });
 
-            handler.register_async("report_binary", move |ctx| {
-                if let Ok(r) = ctx.arg::<bool>("received") {
-                    received.store(r, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report_binary", move |ctx| {
+            if let Ok(r) = ctx.arg::<bool>("received") {
+                received.store(r, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("channel-binary-small");
+        let mut web_context = test_web_context("channel-binary-small");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_devtools(true)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_devtools(true)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if binary_message_received.load(Ordering::SeqCst) {
         Ok(())
@@ -516,7 +515,7 @@ fn test_channel_binary_small() -> std::result::Result<(), String> {
     }
 }
 
-fn test_channel_binary_large() -> std::result::Result<(), String> {
+fn test_channel_binary_large(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
     use parking_lot::Mutex;
 
     // Struct to hold resources
@@ -531,9 +530,8 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
     let binary_message_received = Arc::new(AtomicBool::new(false));
     let binary_message_received_clone = binary_message_received.clone();
 
-    RunLoop::current()
-        .schedule(Duration::ZERO, move || {
-            let html = r#"<script>
+    schedule_on_run_loop(run_loop, Duration::ZERO, move |_run_loop| {
+        let html = r#"<script>
             window.addEventListener('load', async () => {
                 try {
                     // Wrap message reception in a Promise
@@ -578,66 +576,63 @@ fn test_channel_binary_large() -> std::result::Result<(), String> {
             });
         </script>"#;
 
-            let width = 600.0;
-            let height = 400.0;
-            let window = create_window("Large Binary Message Test", width, height);
-            let handler = Rc::new(WxpCommandHandler::new());
-            let received = binary_message_received_clone.clone();
+        let width = 600.0;
+        let height = 400.0;
+        let window = create_window("Large Binary Message Test", width, height);
+        let handler = Rc::new(WxpCommandHandler::new());
+        let received = binary_message_received_clone.clone();
 
-            handler.register_async("send_binary_large", move |ctx| {
-                use wxp::Channel;
-                let channel = ctx.arg::<Channel>("ch").unwrap();
+        handler.register_async("send_binary_large", move |ctx| {
+            use wxp::Channel;
+            let channel = ctx.arg::<Channel>("ch").unwrap();
 
-                async move {
-                    // Send large binary message (2000 bytes)
-                    let large_data: Vec<u8> = (0..2000u16).map(|i| ((i * 2) % 256) as u8).collect();
-                    channel.send_bytes(large_data).map_err(|e| e.to_string())?;
+            async move {
+                // Send large binary message (2000 bytes)
+                let large_data: Vec<u8> = (0..2000u16).map(|i| ((i * 2) % 256) as u8).collect();
+                channel.send_bytes(large_data).map_err(|e| e.to_string())?;
 
-                    Ok::<_, String>(json!({ "status": "sent" }))
-                }
-            });
+                Ok::<_, String>(json!({ "status": "sent" }))
+            }
+        });
 
-            handler.register_async("report_binary", move |ctx| {
-                if let Ok(r) = ctx.arg::<bool>("received") {
-                    received.store(r, Ordering::SeqCst);
-                }
-                // Stop the test immediately after the report arrives
-                RunLoop::current().stop_app();
-                async move { Ok::<_, &str>(json!({})) }
-            });
+        handler.register_async("report_binary", move |ctx| {
+            if let Ok(r) = ctx.arg::<bool>("received") {
+                received.store(r, Ordering::SeqCst);
+            }
+            // Stop the test immediately after the report arrives
+            stop_app();
+            async move { Ok::<_, &str>(json!({})) }
+        });
 
-            let mut web_context = test_web_context("channel-binary-large");
+        let mut web_context = test_web_context("channel-binary-large");
 
-            let webview = WxpWebViewBuilder::new(&mut web_context)
-                .with_command_handler(handler)
-                .with_html(html)
-                .with_devtools(true)
-                .with_bounds(Rect {
-                    position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                    size: Size::Logical(LogicalSize::new(width, height)),
-                })
-                .build_as_child(&window)
-                .expect("Failed to create WebView");
+        let webview = WxpWebViewBuilder::new(&mut web_context)
+            .with_command_handler(handler)
+            .with_html(html)
+            .with_devtools(true)
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Logical(LogicalSize::new(width, height)),
+            })
+            .build_as_child(&window)
+            .expect("Failed to create WebView");
 
-            window.show();
+        window.show();
 
-            // Save resources to extend the WebView's lifetime
-            *resources_clone.lock() = Some(Resources {
-                _window: window,
-                _webview: webview,
-            });
-        })
-        .detach();
+        // Save resources to extend the WebView's lifetime
+        *resources_clone.lock() = Some(Resources {
+            _window: window,
+            _webview: webview,
+        });
+    });
 
     // Timeout is set as a fallback to 30 seconds
-    RunLoop::current()
-        .schedule(Duration::from_millis(30000), || {
-            error!("Test timeout: report was not received within 30 seconds");
-            RunLoop::current().stop_app()
-        })
-        .detach();
+    schedule_on_run_loop(run_loop, Duration::from_millis(30000), |_run_loop| {
+        error!("Test timeout: report was not received within 30 seconds");
+        stop_app()
+    });
 
-    RunLoop::current().run_app();
+    run_app(run_loop);
 
     if binary_message_received.load(Ordering::SeqCst) {
         Ok(())

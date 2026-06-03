@@ -21,7 +21,7 @@ DAW ホストへの panic 伝播防止など）に最適化する方向で独自
 | 変更 | 理由 |
 |---|---|
 | thread-local ストレージを廃止、グローバル singleton に変更 | DLL unload 時の TLS destructor 問題を回避（後述） |
-| `init()` / `deinit()` の参照カウント方式 | プラグイン統合コードからの複数回初期化に耐えるため（後述） |
+| `RunLoopGuard` を返す参照カウント式 `init()` | プラグイン統合コードからの複数回初期化に耐えつつ、解放を RAII にするため（後述） |
 | Win32 の Window Class 名、CFRunLoop の RunLoopMode 名を固有名に変更 | 同一プロセスに複数 DLL が読み込まれたときの名前衝突を回避 |
 | `abort()` メソッドを追加 | タスクの制御された中断が可能に |
 | task 内 panic を `catch_unwind` でキャッチ | DAW ホストを巻き込まないため（後述） |
@@ -43,7 +43,7 @@ run loop を持つ設計も可能ですが、オーディオプラグインで�
 
 ---
 
-## `init` / `deinit` の設計
+## `init` / guard の設計
 
 参照カウント方式（`INIT_COUNT: AtomicUsize`）を採用しています。
 
@@ -53,15 +53,17 @@ worker thread から呼ばれる可能性があります。一方 `RunLoop::init
 RunLoop スレッドとして固定するため、プラグイン統合では GUI コールバックを受けるホストの
 main/UI スレッドから呼ぶ必要があります。
 
-参照カウントは、GUI lifecycle やホストの reload に合わせてプラグイン統合コードが
-setup/teardown を複数回試みるケースに耐えるために残しています。`INIT_COUNT` が 0→1 に
-なったときに実際の初期化、1→0 になったときにクリーンアップが走ります。
+`RunLoop::init()` が成功するたびに `RunLoopGuard` が返ります。参照カウントは、GUI lifecycle
+やホストの reload に合わせてプラグイン統合コードが setup/teardown を複数回試みるケースに
+耐えるために残しています。`INIT_COUNT` が 0→1 になったときに実際の初期化、最後の
+`RunLoopGuard` が drop されて 1→0 になったときにクリーンアップが走ります。
 
 誤用パターン:
-- `deinit()` を `init()` より多く呼ぶ → カウントがアンダーフローし、次の `init()` で
-  クリーンアップ済みインスタンスを参照するリスクがあります（`fetch_sub` の wrap-around のため検出が困難）。
-- `deinit()` を呼ばずに DLL がアンロードされる → `RunLoopInner::drop` でフォールバック処理が
-  走りますが、ベストエフォートです。shutdown パスでは panic を起こさないことが重要です。
+- `RunLoopGuard` を owner 以外のスレッドで drop する → thread-affine な platform state には無効です。
+  `RunLoopGuard` は意図的に `!Send + !Sync` にして、これをコンパイル時エラーにしています。
+- `RunLoopGuard` を leak する（例: `mem::forget`）→ process teardown まで cleanup が走りません。
+  `RunLoopInner::drop` にはベストエフォートのフォールバックがありますが、あくまでベストエフォートです。
+  shutdown パスでは panic を起こさないことが重要です。
 
 ---
 
@@ -110,8 +112,8 @@ TLS に保持していた値がアンロード済み DLL 側のコード・デ�
 
 - **shutdown パスで panic しない**: DAW ホストを巻き込みます。`catch_unwind` で囲むか、
   panic が起きない実装にしてください。
-- **main thread 判定ロジックを軽率に変えない**: `RUN_LOOP_THREAD_ID` の取得・比較は
-  複数箇所で行われており、変更すると `sender()`、`current()`、`is_run_loop_thread()` の
-  整合性が崩れます。
+- **run loop thread 判定ロジックを軽率に変えない**: `RUN_LOOP_THREAD_ID` の取得・比較は
+  複数箇所で行われており、変更すると `post()`、`call()`、`RunLoopGuard::local()`、
+  `is_run_loop_thread()` の整合性が崩れます。
 - **Win32 の Window Class 名・CFRunLoop の RunLoopMode 名はユニークに保つ**:
   `irondash` や他ライブラリとの名前衝突を防ぐため、クレート固有のプレフィックスを維持してください。

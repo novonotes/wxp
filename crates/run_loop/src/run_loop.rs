@@ -6,7 +6,7 @@ use std::{
     pin::pin,
     rc::Rc,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Context, Wake, Waker},
@@ -18,18 +18,18 @@ use futures::{Future, task::ArcWake};
 
 use crate::{
     Handle, JoinHandle, RunLoopSender, Task,
-    main_thread::MainThreadFacilitator,
     platform::{PlatformRunLoop, PollSession},
     task::AbortableTask,
-    util::FutureCompleter,
+    util::{BlockingVariable, FutureCompleter},
 };
 
 // Lets a `!Send`/`!Sync` value (e.g. the platform run loop, which is `Rc`-based)
 // live in a `static`. Rust normally forbids this; the type is sound here *only*
-// because the contained value is read via the run-loop-thread checks in
-// `RunLoop::current`/`try_current`, and is installed/cleared only by
-// `initialize`/`shutdown`, which are serialized under `INIT_MUTEX`. So the
-// interior is never touched off the run loop thread or concurrently.
+// because the contained value is read via run-loop-thread-only entry points
+// (`RunLoopGuard::local`, post/call callbacks, and internal local helpers), and
+// is installed/cleared only by `initialize`/`shutdown`, which are serialized
+// under `INIT_MUTEX`. So the interior is never touched off the run loop thread
+// or concurrently.
 struct RunLoopThreadOnly<T> {
     inner: std::cell::UnsafeCell<Option<T>>,
 }
@@ -78,6 +78,7 @@ impl<T> RunLoopThreadOnly<T> {
 // cross-thread source of truth for "which thread owns it" and gates access to
 // the thread-only instance above.
 static RUN_LOOP_INSTANCE: RunLoopThreadOnly<Arc<RunLoopInner>> = RunLoopThreadOnly::new();
+static RUN_LOOP_SENDER: Mutex<Option<RunLoopSender>> = Mutex::new(None);
 static RUN_LOOP_THREAD_ID: Mutex<Option<ThreadId>> = Mutex::new(None);
 
 // init/deinit are reference-counted (CLAP/VST3 style): a host may load the same
@@ -88,8 +89,47 @@ static RUN_LOOP_THREAD_ID: Mutex<Option<ThreadId>> = Mutex::new(None);
 static INIT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static INIT_MUTEX: Mutex<()> = Mutex::new(());
 static BLOCK_ON_ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING_CALLS: Mutex<Vec<Weak<dyn PendingCall>>> = Mutex::new(Vec::new());
 
 struct BlockOnActiveGuard;
+
+trait PendingCall: Send + Sync {
+    fn cancel(&self);
+}
+
+struct CallCompletion<R: Send + 'static> {
+    var: BlockingVariable<Result<R>>,
+    completed: AtomicBool,
+}
+
+impl<R: Send + 'static> CallCompletion<R> {
+    fn new(var: BlockingVariable<Result<R>>) -> Self {
+        Self {
+            var,
+            completed: AtomicBool::new(false),
+        }
+    }
+
+    fn complete(&self, result: Result<R>) {
+        if !self.completed.swap(true, Ordering::AcqRel) {
+            self.var.set(result);
+        }
+    }
+}
+
+impl<R: Send + 'static> PendingCall for CallCompletion<R> {
+    fn cancel(&self) {
+        if !self.completed.swap(true, Ordering::AcqRel) {
+            self.var.set(Err(Error::NotInitialized));
+        }
+    }
+}
+
+impl<R: Send + 'static> Drop for CallCompletion<R> {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
 
 impl BlockOnActiveGuard {
     fn enter() -> Self {
@@ -136,7 +176,7 @@ impl Wake for BlockOnWaker {
         // so when the future is woken we need to trigger another run loop iteration.
         // We re-enqueue a single empty callback to avoid excessive wake spam.
         if !self.queued.swap(true, Ordering::AcqRel) {
-            self.sender.send(|| {});
+            let _ = self.sender.send(|| {});
         }
     }
 }
@@ -145,6 +185,7 @@ struct RunLoopInner {
     platform_run_loop: Rc<PlatformRunLoop>,
     active_tasks: Mutex<Vec<std::sync::Weak<dyn AbortableTask>>>,
     has_shutdown: AtomicBool,
+    shutdown_token: Arc<AtomicBool>,
 }
 
 impl Drop for RunLoopInner {
@@ -171,33 +212,65 @@ impl Drop for RunLoopInner {
     }
 }
 
-/// An abstraction over the platform-specific RunLoop.
+/// Process-wide facade for the native run loop.
 ///
-/// ## Run loop thread
+/// `RunLoop` owns no per-instance state. After [`init`](Self::init) succeeds,
+/// callbacks can be posted to the run loop thread from any thread using
+/// [`post`](Self::post) or [`call`](Self::call).
 ///
-/// The thread that called `RunLoop::init()`. At any given moment only a single run loop thread
-/// may exist in the entire process (MUST). `RunLoop::current()` is only usable on this thread.
+/// Operations that may capture `!Send` GUI/native state are isolated behind
+/// [`RunLoopLocal`]. It is borrowed from [`RunLoopGuard`] on the thread that
+/// initialized the run loop, or passed to callbacks that run on the run loop
+/// thread.
 ///
-/// - Ordinary applications: should call `RunLoop::init()` on the thread that drives the UI/run loop (SHOULD)
-/// - Audio plugins: should call `RunLoop::init()` from the host main/UI thread that will receive GUI callbacks, not from CLAP entry initialization (SHOULD)
-/// - Test environments: any thread may be designated as the run loop thread (MAY)
-/// - Thread switching: can be changed by calling `deinit()` then `init()` on another thread (MAY)
+/// This crate uses a static singleton instead of thread-local storage so DLL
+/// unload does not depend on host-controlled TLS destructor ordering.
 pub struct RunLoop {
     inner: Arc<RunLoopInner>,
 }
 
-/// A successful RunLoop acquisition released automatically on drop.
+/// RAII ownership of one run loop initialization reference.
 ///
-/// This is the transactional alternative to manually pairing [`RunLoop::init`]
-/// and [`RunLoop::deinit`]. Failed acquisition leaves the run loop state
-/// unchanged.
+/// Dropping the guard releases the reference acquired by [`RunLoop::init`]. The
+/// guard is intentionally `!Send + !Sync`, so the initialization reference is
+/// released on the same thread that acquired it.
 pub struct RunLoopGuard {
-    _not_send: PhantomData<Rc<()>>,
+    local: RunLoopLocal,
 }
 
 impl Drop for RunLoopGuard {
     fn drop(&mut self) {
-        RunLoop::deinit();
+        RunLoop::release_guard();
+    }
+}
+
+impl RunLoopGuard {
+    /// Returns the run-loop-thread-local capability for this guard.
+    ///
+    /// The returned [`RunLoopLocal`] can run operations that are only valid on the
+    /// run loop thread, including callbacks and futures that capture `!Send`
+    /// state.
+    pub fn local(&self) -> &RunLoopLocal {
+        &self.local
+    }
+}
+
+/// Capability for operations that must be created and driven on the run loop thread.
+///
+/// `RunLoopLocal` is intentionally `!Send + !Sync`. It is borrowed from
+/// [`RunLoopGuard`] or passed to callbacks executed by [`RunLoop::post`] and
+/// [`RunLoop::call`].
+pub struct RunLoopLocal {
+    run_loop: RunLoop,
+    _not_send_sync: PhantomData<Rc<()>>,
+}
+
+impl RunLoopLocal {
+    fn new(run_loop: RunLoop) -> Self {
+        Self {
+            run_loop,
+            _not_send_sync: PhantomData,
+        }
     }
 }
 
@@ -258,22 +331,27 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 impl RunLoop {
-    /// Marks the current thread as the run loop thread and initializes the native loop backend.
+    /// Initializes the process-wide run loop on the current thread.
     ///
-    /// In audio plugins, call this from the host main/UI thread that will receive GUI callbacks.
-    /// Do not treat this as CLAP `clap_entry.init`: that entry point is DSO initialization and
-    /// may be called from a scanning or worker thread.
+    /// This is not the same lifecycle hook as CLAP `clap_entry.init`. In audio
+    /// plugins, call it from the host main/UI thread that will receive GUI
+    /// callbacks, not from a scanning thread, audio thread, or DSO
+    /// initialization hook.
     ///
-    /// Safe to call multiple times on the same run loop thread; pair each successful call with
-    /// [`RunLoop::deinit()`].
-    pub fn init() -> Result<()> {
+    /// Each successful call returns a [`RunLoopGuard`]. The run loop is
+    /// reference-counted and shuts down when the last guard is dropped.
+    ///
+    /// Returns an error if the run loop is already initialized on another thread.
+    pub fn init() -> Result<RunLoopGuard> {
         let _guard = INIT_MUTEX.lock().unwrap();
 
         let count = INIT_COUNT.load(Ordering::SeqCst);
         if count == 0 {
             Self::initialize()?;
             INIT_COUNT.store(1, Ordering::SeqCst);
-            return Ok(());
+            return Ok(RunLoopGuard {
+                local: RunLoopLocal::new(Self::current_local()?),
+            });
         }
 
         if !Self::is_run_loop_thread() {
@@ -281,28 +359,29 @@ impl RunLoop {
         }
 
         INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    /// Acquires one RunLoop reference on the current thread and releases it on drop.
-    ///
-    /// Unlike manual `init()` / `deinit()` pairing at call sites, failed
-    /// acquisition is transactional: no reference count is acquired unless this
-    /// returns `Ok`.
-    pub fn acquire_on_current_thread() -> Result<RunLoopGuard> {
-        Self::init()?;
         Ok(RunLoopGuard {
-            _not_send: PhantomData,
+            local: RunLoopLocal::new(Self::current_local()?),
         })
     }
 
+    /// Returns whether the process-wide run loop is currently initialized.
+    ///
+    /// This may be called from any thread. The result is only a snapshot:
+    /// another thread may drop the final [`RunLoopGuard`] immediately after this
+    /// returns, so callers must still handle errors from [`post`](Self::post)
+    /// and [`call`](Self::call).
+    pub fn is_initialized() -> bool {
+        INIT_COUNT.load(Ordering::SeqCst) > 0
+    }
+
+    #[cfg(test)]
     /// Forcibly rebinds the run loop to the current thread.
     ///
     /// Mainly a test-suite escape hatch: tests are serialized but a previous
     /// test may have left the loop bound to a now-dead thread. Rather than
     /// failing, tear the old loop down and rebuild it here, preserving the
     /// existing init count so reference counting stays balanced.
-    pub fn ensure_run_loop_on_current_thread() -> Result<()> {
+    pub fn ensure_run_loop_on_current_thread() -> Result<RunLoopGuard> {
         let guard = INIT_MUTEX.lock().unwrap();
         let count = INIT_COUNT.load(Ordering::SeqCst);
 
@@ -314,24 +393,28 @@ impl RunLoop {
 
         if Self::is_run_loop_thread() {
             // Already where we want to be; nothing to rebuild.
-            return Ok(());
+            INIT_COUNT.fetch_add(1, Ordering::SeqCst);
+            return Ok(RunLoopGuard {
+                local: RunLoopLocal::new(Self::current_local()?),
+            });
         }
 
         // Bound to a different (likely dead) thread: rebuild in place and
-        // restore the original count so callers' deinit pairing still holds.
+        // restore the original count so existing guards stay balanced.
         INIT_COUNT.store(0, Ordering::SeqCst);
         Self::shutdown();
 
         Self::initialize()?;
         INIT_COUNT.store(count, Ordering::SeqCst);
         debug_assert!(Self::is_run_loop_thread());
-        Ok(())
+        INIT_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(RunLoopGuard {
+            local: RunLoopLocal::new(Self::current_local()?),
+        })
     }
 
     /// Releases one run loop initialization reference.
-    ///
-    /// Must be called the same number of times as successful [`RunLoop::init()`] calls.
-    pub fn deinit() {
+    fn release_guard() {
         let _guard = INIT_MUTEX.lock().unwrap();
 
         let count = INIT_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -349,11 +432,22 @@ impl RunLoop {
             platform_run_loop: Rc::new(PlatformRunLoop::new()),
             active_tasks: Mutex::new(Vec::new()),
             has_shutdown: AtomicBool::new(false),
+            shutdown_token: Arc::new(AtomicBool::new(false)),
         });
 
+        let sender = RunLoopSender::new(
+            inner.platform_run_loop.new_sender(),
+            Arc::downgrade(&inner.shutdown_token),
+        );
+
         RUN_LOOP_INSTANCE
-            .set(inner)
+            .set(inner.clone())
             .map_err(|_| Error::AlreadyInitialized)?;
+
+        {
+            let mut run_loop_sender = RUN_LOOP_SENDER.lock().unwrap();
+            *run_loop_sender = Some(sender);
+        }
 
         // Only publish the owning thread after the instance is installed, so a
         // failed initialize does not leave a partially observable run loop.
@@ -361,9 +455,6 @@ impl RunLoop {
             let mut thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
             *thread_id = Some(thread::current().id());
         }
-
-        // Set up MainThreadFacilitator (works even without Flutter plugin)
-        MainThreadFacilitator::set_for_current_thread();
 
         Ok(())
     }
@@ -373,6 +464,16 @@ impl RunLoop {
         if let Some(instance) = RUN_LOOP_INSTANCE.get() {
             // Record that shutdown is complete
             instance.has_shutdown.store(true, Ordering::SeqCst);
+            instance.shutdown_token.store(true, Ordering::SeqCst);
+
+            // Wake cross-thread RunLoop::call waiters whose callbacks may still be
+            // queued in a platform loop that is about to stop being pumped.
+            let pending_calls = std::mem::take(&mut *PENDING_CALLS.lock().unwrap());
+            for pending_call in pending_calls {
+                if let Some(pending_call) = pending_call.upgrade() {
+                    pending_call.cancel();
+                }
+            }
 
             // Abort all active tasks.
             // Catch any panics during abort to prevent crashes.
@@ -412,60 +513,93 @@ impl RunLoop {
         // Clear the RunLoop instance so a new one can be created by the next init()
         RUN_LOOP_INSTANCE.clear();
 
-        // Reset MainThreadFacilitator
-        MainThreadFacilitator::reset();
-    }
-
-    /// Schedules `callback` to be executed after `in_time`.
-    ///
-    /// Returns a [`Handle`] that must be kept alive until the callback executes.
-    /// Dropping the handle early cancels the callback.
-    ///
-    /// * Call [`Handle::detach()`] to ensure execution even after the handle is dropped.
-    /// * Call [`Handle::cancel()`] to cancel without dropping the handle.
-    #[must_use]
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> Handle
-    where
-        F: FnOnce() + 'static,
-    {
-        let platform_run_loop = &self.inner.platform_run_loop;
-        let handle = platform_run_loop.schedule(in_time, callback);
-        let inner_clone = self.inner.clone();
-        Handle::new(move || {
-            inner_clone.platform_run_loop.unschedule(handle);
-        })
-    }
-
-    /// Returns a Future that completes after the specified duration.
-    pub async fn delay(&self, duration: Duration) {
-        let (future, completer) = FutureCompleter::<()>::new();
-        self.schedule(duration, move || {
-            completer.complete(());
-        })
-        .detach();
-        future.await
-    }
-
-    /// Returns a sender that posts callbacks onto the run loop thread.
-    ///
-    /// Callable from any thread — this is the cross-thread entry point. On the
-    /// run loop thread itself a concrete platform sender is cheap; from other
-    /// threads we hand back the indirect main-thread sender, which routes
-    /// through the facilitator without needing the (`!Send`) `RunLoop` here.
-    pub fn sender() -> RunLoopSender {
-        if Self::is_run_loop_thread() {
-            RunLoop::current().new_sender()
-        } else {
-            MainThreadFacilitator::is_main_thread()
-                .map(|_| RunLoopSender::new_for_run_loop_thread())
-                .unwrap()
+        // Drop the cross-thread sender after the run loop instance is no longer
+        // observable.
+        {
+            let mut run_loop_sender = RUN_LOOP_SENDER.lock().unwrap();
+            *run_loop_sender = None;
         }
     }
 
-    /// Returns a sender object that allows other threads to execute callbacks on this run loop.
-    /// Unlike `RunLoop`, the sender implements `Send` and `Sync`.
-    pub(crate) fn new_sender(&self) -> RunLoopSender {
-        RunLoopSender::new(self.inner.platform_run_loop.new_sender())
+    /// Posts a callback to be run later on the run loop thread.
+    ///
+    /// The callback is always queued, even when called from the run loop thread.
+    /// Use [`call`](Self::call) when the callback must complete before returning.
+    ///
+    /// Returns `Ok(())` once the callback has been handed to the run loop queue.
+    /// This does not mean the callback has already run or that it will run to
+    /// completion: the run loop may shut down before queued work is processed.
+    ///
+    /// Returns an error if there is no initialized run loop to post to.
+    ///
+    /// The callback must be `Send + 'static` because it may be transferred from
+    /// another thread to the run loop thread. Once inside the callback, use the
+    /// provided [`RunLoopLocal`] to schedule timers or spawn `!Send` futures.
+    pub fn post<F>(callback: F) -> Result<()>
+    where
+        F: FnOnce(&RunLoopLocal) + Send + 'static,
+    {
+        let sender = Self::sender()?;
+        if !sender.send(move || {
+            if let Ok(run_loop) = Self::current_local() {
+                callback(&RunLoopLocal::new(run_loop));
+            }
+        }) {
+            return Err(Error::NotInitialized);
+        }
+        Ok(())
+    }
+
+    /// Runs a callback on the run loop thread and returns its result.
+    ///
+    /// If called from the run loop thread, the callback runs immediately.
+    /// Otherwise, it is posted to the run loop thread and this function blocks
+    /// until the callback completes.
+    ///
+    /// Returns an error if there is no initialized run loop to call into, or if
+    /// the run loop shuts down before the queued callback starts. Errors or
+    /// values produced by the callback itself should be represented in `R` (for
+    /// example by returning a `Result` from the callback).
+    ///
+    /// Be careful when calling this while holding locks: unrelated run loop
+    /// callbacks may need the same locks before this callback can run.
+    pub fn call<F, R>(callback: F) -> Result<R>
+    where
+        F: FnOnce(&RunLoopLocal) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        if Self::is_run_loop_thread() {
+            let run_loop = Self::current_local()?;
+            return Ok(callback(&RunLoopLocal::new(run_loop)));
+        }
+
+        let sender = Self::sender()?;
+        let var = BlockingVariable::<Result<R>>::new();
+        let completion = Arc::new(CallCompletion::new(var.clone()));
+        let pending_call: Arc<dyn PendingCall> = completion.clone();
+        {
+            let mut pending_calls = PENDING_CALLS.lock().unwrap();
+            pending_calls.retain(|pending_call| pending_call.upgrade().is_some());
+            pending_calls.push(Arc::downgrade(&pending_call));
+        }
+        if !sender.send(move || {
+            let result =
+                Self::current_local().map(|run_loop| callback(&RunLoopLocal::new(run_loop)));
+            completion.complete(result);
+        }) {
+            return Err(Error::NotInitialized);
+        }
+        var.get_blocking()
+    }
+
+    #[doc(hidden)]
+    pub fn sender() -> Result<RunLoopSender> {
+        RUN_LOOP_SENDER
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or(Error::NotInitialized)
     }
 
     /// Returns whether the current thread is the run loop thread.
@@ -479,31 +613,82 @@ impl RunLoop {
         }
     }
 
-    /// Sets the current thread as the run loop thread.
-    ///
-    /// [deprecated]
-    /// Retained only in case it is needed for integrating with older Flutter versions.
-    /// In general, the run loop thread should be designated via `RunLoop::init()` instead.
-    ///
-    /// Call from the run loop thread after `RunLoop::init()` when not using the
-    /// irondash_engine_context plugin. This allows `RunLoop::sender_for_run_loop_thread()`
-    /// to work without a Flutter plugin.
-    #[deprecated(note = "Use RunLoop::init() instead")]
-    pub fn set_run_loop_thread() {
-        {
-            let mut thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
-            *thread_id = Some(thread::current().id());
+    fn current_local() -> Result<Self> {
+        let current_thread = thread::current().id();
+        let thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
+
+        if let Some(run_loop_thread_id) = *thread_id {
+            if current_thread != run_loop_thread_id {
+                return Err(Error::NotRunLoopThread);
+            }
+        } else {
+            return Err(Error::NotInitialized);
         }
 
-        // Set up MainThreadFacilitator (works even without Flutter plugin)
-        use crate::main_thread::MainThreadFacilitator;
-        MainThreadFacilitator::set_for_current_thread();
+        let instance = RUN_LOOP_INSTANCE.get().ok_or(Error::NotInitialized)?;
+
+        if instance.has_shutdown.load(Ordering::SeqCst) {
+            return Err(Error::NotInitialized);
+        }
+
+        Ok(RunLoop {
+            inner: instance.clone(),
+        })
+    }
+}
+
+impl RunLoopLocal {
+    /// Schedules `callback` to be executed after `in_time`.
+    ///
+    /// Returns a [`Handle`] that must be kept alive until the callback executes.
+    /// Dropping the handle early cancels the callback.
+    ///
+    /// * Call [`Handle::detach()`] to ensure execution even after the handle is dropped.
+    /// * Call [`Handle::cancel()`] to cancel without dropping the handle.
+    #[must_use]
+    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> Handle
+    where
+        F: FnOnce(&RunLoopLocal) + 'static,
+    {
+        let inner_for_callback = self.run_loop.inner.clone();
+        let handle = self
+            .run_loop
+            .inner
+            .platform_run_loop
+            .schedule(in_time, move || {
+                callback(&RunLoopLocal::new(RunLoop {
+                    inner: inner_for_callback,
+                }));
+            });
+        let inner_clone = self.run_loop.inner.clone();
+        Handle::new(move || {
+            inner_clone.platform_run_loop.unschedule(handle);
+        })
+    }
+
+    /// Returns a Future that completes after the specified duration.
+    pub async fn delay(&self, duration: Duration) {
+        let (future, completer) = FutureCompleter::<()>::new();
+        self.schedule(duration, move |_| {
+            completer.complete(());
+        })
+        .detach();
+        future.await
+    }
+
+    /// Returns a sender object that allows other threads to execute callbacks on this run loop.
+    /// Unlike `RunLoop`, the sender implements `Send` and `Sync`.
+    pub(crate) fn new_sender(&self) -> RunLoopSender {
+        RunLoopSender::new(
+            self.run_loop.inner.platform_run_loop.new_sender(),
+            Arc::downgrade(&self.run_loop.inner.shutdown_token),
+        )
     }
 
     /// Spawns a Future using this run loop as the executor.
     pub fn spawn<T: 'static>(&self, future: impl Future<Output = T> + 'static) -> JoinHandle<T> {
         // Check for shutdown
-        if self.inner.has_shutdown.load(Ordering::SeqCst) {
+        if self.run_loop.inner.has_shutdown.load(Ordering::SeqCst) {
             panic!("Cannot spawn task on shut down RunLoop");
         }
 
@@ -514,7 +699,7 @@ impl RunLoop {
         // list would otherwise grow forever, so compact it once it gets large
         // rather than on every spawn.
         {
-            let mut tasks = self.inner.active_tasks.lock().unwrap();
+            let mut tasks = self.run_loop.inner.active_tasks.lock().unwrap();
             tasks.push(Arc::downgrade(&(task.clone() as Arc<dyn AbortableTask>)));
 
             if tasks.len() > 100 {
@@ -528,7 +713,7 @@ impl RunLoop {
         JoinHandle::new(task)
     }
 
-    /// Synchronously blocks the current thread until the given Future completes.
+    /// Blocks the run loop thread until the given Future completes.
     ///
     /// This method continues to drive the RunLoop while waiting, so other tasks submitted
     /// via `spawn` can also make progress. This means a Future that depends on another task
@@ -536,11 +721,8 @@ impl RunLoop {
     /// `pollster::block_on` do not drive the run loop and would deadlock in the same situation.
     ///
     /// Unlike `spawn`, this method polls the provided future directly in place without spawning it.
-    /// Therefore, unlike `RunLoop::spawn`, it can accept futures that contain non-`'static` borrows.
-    ///
-    /// When the `flutter` feature is enabled, the normal polling path (for `run`) may fall back to
-    /// the platform default event queue as needed, but `block_on` always processes only RunLoop
-    /// specific sources.
+    /// Therefore, unlike [`spawn`](Self::spawn), it can accept futures that
+    /// contain non-`'static` borrows.
     ///
     /// Nested `block_on` calls will panic.
     ///
@@ -549,8 +731,8 @@ impl RunLoop {
     /// ```no_run
     /// use novonotes_run_loop::RunLoop;
     ///
-    /// RunLoop::init().unwrap();
-    /// let result = RunLoop::current().block_on(async {
+    /// let guard = RunLoop::init().unwrap();
+    /// let result = guard.local().block_on(async {
     ///     // Async work
     ///     42
     /// });
@@ -562,7 +744,7 @@ impl RunLoop {
     {
         let _block_on_guard = BlockOnActiveGuard::enter();
 
-        if self.inner.has_shutdown.load(Ordering::SeqCst) {
+        if self.run_loop.inner.has_shutdown.load(Ordering::SeqCst) {
             panic!("Cannot block on shut down RunLoop");
         }
 
@@ -584,67 +766,11 @@ impl RunLoop {
                 }
             }
 
-            self.inner.platform_run_loop.poll_once(&mut poll_session);
+            self.run_loop
+                .inner
+                .platform_run_loop
+                .poll_once(&mut poll_session);
         }
-    }
-
-    /// Returns the RunLoop for the current thread.
-    /// Must be called from the run loop thread; panics otherwise.
-    pub fn current() -> Self {
-        // Verify we are on the run loop thread
-        let current_thread = thread::current().id();
-        let thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
-
-        if let Some(run_loop_thread_id) = *thread_id {
-            if current_thread != run_loop_thread_id {
-                panic!("RunLoop::current() can only be called from the run loop thread");
-            }
-        } else {
-            panic!("RunLoop not initialized. Call RunLoop::init() first");
-        }
-
-        // Retrieve the instance
-        let instance = RUN_LOOP_INSTANCE
-            .get()
-            .expect("RunLoop not initialized. Call RunLoop::init() first");
-
-        // Check for shutdown
-        if instance.has_shutdown.load(Ordering::SeqCst) {
-            panic!("RunLoop has been shut down");
-        }
-
-        RunLoop {
-            inner: instance.clone(),
-        }
-    }
-
-    /// Fallible variant of [`RunLoop::current()`].
-    ///
-    /// Returns an error if the RunLoop is not initialized on the current thread.
-    pub fn try_current() -> Result<Self> {
-        // Verify we are on the run loop thread
-        let current_thread = thread::current().id();
-        let thread_id = RUN_LOOP_THREAD_ID.lock().unwrap();
-
-        if let Some(run_loop_thread_id) = *thread_id {
-            if current_thread != run_loop_thread_id {
-                return Err(Error::NotInitialized);
-            }
-        } else {
-            return Err(Error::NotInitialized);
-        }
-
-        // Retrieve the instance
-        let instance = RUN_LOOP_INSTANCE.get().ok_or(Error::NotInitialized)?;
-
-        // Check for shutdown
-        if instance.has_shutdown.load(Ordering::SeqCst) {
-            return Err(Error::NotInitialized);
-        }
-
-        Ok(RunLoop {
-            inner: instance.clone(),
-        })
     }
 
     /// Runs the run loop until stopped.
@@ -654,40 +780,37 @@ impl RunLoop {
     ///
     /// `RunLoop::init()` must have completed before calling this.
     pub fn run(&self) {
-        self.inner.platform_run_loop.run()
+        self.run_loop.inner.platform_run_loop.run()
     }
 
     /// Stops the run loop.
     pub fn stop(&self) {
-        self.inner.platform_run_loop.stop()
+        self.run_loop.inner.platform_run_loop.stop()
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     pub fn run_app(&self) {
-        self.inner.platform_run_loop.run_app();
+        self.run_loop.inner.platform_run_loop.run_app();
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     pub fn stop_app(&self) {
-        self.inner.platform_run_loop.stop_app();
+        self.run_loop.inner.platform_run_loop.stop_app();
     }
-}
-
-/// Spawns a Future using the current thread's RunLoop as the executor.
-/// The RunLoop must have been initialized with `RunLoop::init()` beforehand.
-pub fn spawn<T: 'static>(future: impl Future<Output = T> + 'static) -> JoinHandle<T> {
-    RunLoop::current().spawn(future)
 }
 
 #[cfg(test)]
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
-    use crate::{RunLoop, test_helper, util::Capsule};
+    use crate::{Error, RunLoop, RunLoopLocal, run_loop::PENDING_CALLS};
     use serial_test::serial;
     use std::{
         cell::RefCell,
         rc::Rc,
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -695,159 +818,174 @@ mod tests {
     #[test]
     #[serial]
     fn test_run() {
-        RunLoop::init().unwrap();
-        let rl = Rc::new(RunLoop::current());
-        let rlc = rl.clone();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
         let next_called = Rc::new(RefCell::new(false));
         let next_called_clone = next_called.clone();
         let start = Instant::now();
-        rl.schedule(Duration::from_millis(50), move || {
-            next_called_clone.replace(true);
-            rlc.stop();
-        })
-        .detach();
+        run_loop
+            .schedule(Duration::from_millis(50), move |run_loop| {
+                next_called_clone.replace(true);
+                run_loop.stop();
+            })
+            .detach();
         assert_eq!(*next_called.borrow(), false);
-        rl.run();
+        run_loop.run();
         assert_eq!(*next_called.borrow(), true);
         assert!(start.elapsed() >= Duration::from_millis(50));
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
-    fn test_sender() {
-        RunLoop::init().unwrap();
-        let run_loop = Rc::new(RunLoop::current());
-        let rl = Arc::new(Mutex::new(Capsule::new(run_loop.clone())));
-        let sender = run_loop.new_sender();
+    fn test_post_from_background_thread() {
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
         let stop_called = Arc::new(Mutex::new(false));
         let stop_called_clone = stop_called.clone();
-        // Confirm that a thread can be spawned while the run loop is already running
-        // run_loop.schedule(Duration::from_secs(1000), || {}).detach();
-        run_loop
-            .schedule(Duration::from_secs(0), || {
-                thread::spawn(move || {
-                    sender.send(move || {
-                        let rl = rl.lock().unwrap();
-                        let rl = rl.get_ref().unwrap();
-                        *stop_called_clone.lock().unwrap() = true;
-                        rl.stop();
-                    });
-                });
+
+        thread::spawn(move || {
+            RunLoop::post(move |run_loop| {
+                assert!(RunLoop::is_run_loop_thread());
+                *stop_called_clone.lock().unwrap() = true;
+                run_loop.stop();
             })
-            .detach();
+            .unwrap();
+        })
+        .join()
+        .unwrap();
+
         assert_eq!(*stop_called.lock().unwrap(), false);
         run_loop.run();
         assert_eq!(*stop_called.lock().unwrap(), true);
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
-    fn test_sender_in_background_thread() {
-        test_helper::run_async(async {
-            let (tx, rx) = futures::channel::oneshot::channel();
+    fn test_call_from_run_loop_thread_runs_inline() {
+        let _guard = RunLoop::init().unwrap();
+        let value = Arc::new(Mutex::new(0));
+        let value_for_call = value.clone();
 
-            let handle = thread::spawn(move || {
-                let sender = RunLoop::sender();
-                sender.send(move || {
-                    assert!(RunLoop::is_run_loop_thread());
-                    tx.send(()).unwrap();
-                });
-            });
+        RunLoop::call(move |_| {
+            *value_for_call.lock().unwrap() = 42;
+        })
+        .unwrap();
 
-            // Wait until the callback executes
-            rx.await.unwrap();
+        assert_eq!(*value.lock().unwrap(), 42);
+    }
 
-            handle.join().unwrap();
-        });
+    #[test]
+    #[serial]
+    fn test_call_from_background_thread_waits_for_result() {
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
+
+        let handle = thread::spawn(|| RunLoop::call(|_| 42).unwrap());
+        run_loop
+            .schedule(Duration::from_millis(10), |run_loop| run_loop.stop())
+            .detach();
+        run_loop.run();
+
+        assert_eq!(handle.join().unwrap(), 42);
+    }
+
+    #[test]
+    #[serial]
+    fn test_call_from_background_thread_unblocks_on_shutdown() {
+        let guard = RunLoop::init().unwrap();
+
+        let handle = thread::spawn(|| RunLoop::call(|_| 42));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let has_pending_call = PENDING_CALLS
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|pending_call| pending_call.upgrade().is_some());
+            if has_pending_call {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background RunLoop::call did not register as pending"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        drop(guard);
+
+        assert!(matches!(handle.join().unwrap(), Err(Error::NotInitialized)));
     }
 
     #[test]
     #[serial]
     fn test_async() {
-        RunLoop::init().unwrap();
-        let run_loop = Rc::new(RunLoop::current());
-        let run_loop_clone = run_loop.clone();
-        run_loop.spawn(async move {
-            RunLoop::current().delay(Duration::from_millis(50)).await;
-            run_loop_clone.stop();
-        });
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
         let start = Instant::now();
+        run_loop
+            .schedule(Duration::from_millis(50), |run_loop| run_loop.stop())
+            .detach();
         run_loop.run();
         assert!(start.elapsed() >= Duration::from_millis(50));
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_init_deinit_reinit() {
-        // First init
-        RunLoop::init().unwrap();
-        assert!(RunLoop::is_run_loop_thread());
-
-        // deinit clears the state
-        RunLoop::deinit();
+        let guard = RunLoop::init().unwrap();
+        assert!(RunLoop::is_initialized());
+        drop(guard);
+        assert!(!RunLoop::is_initialized());
 
         // Can re-init on another thread
         let handle = thread::spawn(|| {
-            RunLoop::init().unwrap();
+            let _guard = RunLoop::init().unwrap();
             assert!(RunLoop::is_run_loop_thread());
-            RunLoop::deinit();
         });
         handle.join().unwrap();
 
         // Can re-init on the original thread as well
-        RunLoop::init().unwrap();
+        let _guard = RunLoop::init().unwrap();
         assert!(RunLoop::is_run_loop_thread());
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_deinit_aborts_all_tasks() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        RunLoop::init().unwrap();
-
-        // Track whether each task has started
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
         let task1_started = Arc::new(AtomicBool::new(false));
         let task2_started = Arc::new(AtomicBool::new(false));
 
         let t1_started = task1_started.clone();
         let t2_started = task2_started.clone();
 
-        // Spawn long-running tasks that wait to be aborted
-        let handle1 = RunLoop::current().spawn(async move {
+        let handle1 = run_loop.spawn(async move {
             t1_started.store(true, Ordering::SeqCst);
             loop {
                 std::future::pending::<()>().await;
             }
         });
 
-        let handle2 = RunLoop::current().spawn(async move {
+        let handle2 = run_loop.spawn(async move {
             t2_started.store(true, Ordering::SeqCst);
             loop {
                 std::future::pending::<()>().await;
             }
         });
 
-        // Run the loop briefly to let the tasks start, then stop
-        RunLoop::current()
-            .schedule(Duration::from_millis(300), || {
-                RunLoop::current().stop();
-            })
+        run_loop
+            .schedule(Duration::from_millis(300), |run_loop| run_loop.stop())
             .detach();
-        RunLoop::current().run();
+        run_loop.run();
 
-        // Confirm the tasks started
         assert!(task1_started.load(Ordering::SeqCst));
         assert!(task2_started.load(Ordering::SeqCst));
 
-        // deinit() should abort all tasks
-        RunLoop::deinit();
+        drop(guard);
 
-        // Confirm both tasks were aborted
         let result1 = pollster::block_on(handle1);
         let result2 = pollster::block_on(handle2);
 
@@ -858,103 +996,96 @@ mod tests {
     #[test]
     #[serial]
     fn test_block_on_simple() {
-        RunLoop::init().unwrap();
-        let result = RunLoop::current().block_on(async { 42 });
+        let guard = RunLoop::init().unwrap();
+        let result = guard.local().block_on(async { 42 });
         assert_eq!(result, 42);
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_block_on_with_delay() {
-        RunLoop::init().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
         let start = Instant::now();
-        let result = RunLoop::current().block_on(async {
-            RunLoop::current().delay(Duration::from_millis(50)).await;
+        let result = run_loop.block_on(async {
+            run_loop.delay(Duration::from_millis(50)).await;
             "completed"
         });
         assert_eq!(result, "completed");
         assert!(start.elapsed() >= Duration::from_millis(50));
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_block_on_drives_spawned_tasks() {
-        RunLoop::init().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_for_task = completed.clone();
 
-        // Verify that the RunLoop continues to run during block_on so that
-        // separately spawned tasks can make progress.
-        let handle = RunLoop::current().spawn(async move {
-            RunLoop::current().delay(Duration::from_millis(20)).await;
+        let handle = run_loop.spawn(async move {
+            completed_for_task.store(true, Ordering::SeqCst);
             123
         });
 
-        let result = RunLoop::current().block_on(async move { handle.await.unwrap() });
-
+        let result = run_loop.block_on(async move { handle.await.unwrap() });
         assert_eq!(result, 123);
-        RunLoop::deinit();
+        assert!(completed.load(Ordering::SeqCst));
     }
 
     #[test]
     #[serial]
     fn test_block_on_nested() {
-        // Use ensure to avoid interference from a previous test
-        RunLoop::ensure_run_loop_on_current_thread().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
 
-        // Nested block_on is undefined behavior and should be detected
-        let result = std::panic::catch_unwind(|| {
-            RunLoop::current().block_on(async {
-                let inner_result = RunLoop::current().block_on(async { "inner" });
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_loop.block_on(async {
+                let inner_result = run_loop.block_on(async { "inner" });
                 format!("outer: {}", inner_result)
             });
-        });
+        }));
 
-        RunLoop::deinit();
         assert!(result.is_err());
     }
 
     #[test]
     #[serial]
     fn test_block_on_panic() {
-        // Use ensure to avoid interference from a previous test
-        RunLoop::ensure_run_loop_on_current_thread().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
 
-        // Catch the panic so deinit is always called
-        let result = std::panic::catch_unwind(|| {
-            RunLoop::current().block_on(async {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_loop.block_on(async {
                 panic!("Task panicked");
             });
-        });
+        }));
 
-        RunLoop::deinit();
         assert!(result.is_err());
     }
 
     #[test]
     #[serial]
     fn test_block_on_recovers_after_panic() {
-        RunLoop::ensure_run_loop_on_current_thread().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
 
-        // After exiting block_on via a panic, the nesting flag should be cleared
-        // so subsequent calls work correctly.
-        let panic_result = std::panic::catch_unwind(|| {
-            RunLoop::current().block_on(async {
+        let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_loop.block_on(async {
                 panic!("Task panicked");
             });
-        });
+        }));
         assert!(panic_result.is_err());
 
-        let result = RunLoop::current().block_on(async { 7 });
+        let result = run_loop.block_on(async { 7 });
         assert_eq!(result, 7);
-
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_block_on_non_static_future() {
-        RunLoop::init().unwrap();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
 
         struct Counter {
             value: u32,
@@ -962,28 +1093,27 @@ mod tests {
 
         impl Counter {
             async fn increment_and_get(&mut self) -> u32 {
-                RunLoop::current().delay(Duration::from_millis(10)).await;
                 self.value += 1;
                 self.value
             }
         }
 
-        // Confirm that a non-`'static` future borrowing `&mut self` can be passed to block_on.
         let mut counter = Counter { value: 41 };
-        let result = RunLoop::current().block_on(counter.increment_and_get());
+        let result = run_loop.block_on(counter.increment_and_get());
 
         assert_eq!(result, 42);
         assert_eq!(counter.value, 42);
-        RunLoop::deinit();
     }
 
     #[test]
     #[serial]
     fn test_block_on_after_deinit_panics() {
-        RunLoop::init().unwrap();
-        let run_loop = RunLoop::current();
+        let guard = RunLoop::init().unwrap();
+        let run_loop = RunLoopLocal::new(RunLoop {
+            inner: guard.local().run_loop.inner.clone(),
+        });
 
-        RunLoop::deinit();
+        drop(guard);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_loop.block_on(async { 1 });

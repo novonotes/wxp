@@ -23,8 +23,8 @@ where
     F: std::future::Future<Output = T> + 'static,
     T: Send + 'static,
 {
-    RunLoop::init().unwrap();
-    let run_loop = RunLoop::current();
+    let guard = RunLoop::init().unwrap();
+    let run_loop = guard.local();
     let result = Arc::new(Mutex::new(None));
     let result_clone = result.clone();
 
@@ -36,22 +36,20 @@ where
         match handle.await {
             Ok(test_result) => {
                 *result_clone.lock().unwrap() = Some(Ok(test_result));
-                RunLoop::current().stop();
+                RunLoop::call(|local| local.stop()).unwrap();
             }
             Err(crate::JoinError::Panic(msg)) => {
                 *result_clone.lock().unwrap() = Some(Err(format!("Task panicked: {:?}", msg)));
-                RunLoop::current().stop();
+                RunLoop::call(|local| local.stop()).unwrap();
             }
             Err(e) => {
                 *result_clone.lock().unwrap() = Some(Err(format!("Unexpected error: {:?}", e)));
-                RunLoop::current().stop();
+                RunLoop::call(|local| local.stop()).unwrap();
             }
         }
     });
 
     run_loop.run();
-
-    RunLoop::deinit();
 
     // Extract and return the result
     let result = Arc::try_unwrap(result)

@@ -7,13 +7,17 @@ update objects that can only be accessed from a specific thread, such as native 
 WebView channels.
 
 ```rust
+use novonotes_run_loop::RunLoop;
 use run_loop_timer::Timer;
 use std::time::Duration;
+
+let guard = RunLoop::init().unwrap();
+let run_loop = guard.local();
 
 let timer = Timer::new(Duration::from_millis(100), || {
     // Runs on the run loop thread
 });
-timer.start();
+timer.start(run_loop);
 timer.stop();
 ```
 
@@ -21,14 +25,14 @@ Async callbacks are also supported.
 
 ```rust
 let timer = Timer::new_async(Duration::from_millis(100), || async {
-    // Spawned via RunLoop::current().spawn(...)
+    // Spawned on the run loop.
 });
-timer.start();
+timer.start(run_loop);
 ```
 
 ## Prerequisites
 
-- Create, start, stop, and drop the timer on a thread where `RunLoop::init()` has been called.
+- Create, start, stop, and drop the timer on the thread that owns the `RunLoopLocal`.
 - When dropped, the next scheduled tick is cancelled.
 - An async task that has already been spawned continues running even after the timer is stopped.
 - Timing precision depends on the platform and run loop load.

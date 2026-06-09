@@ -2,11 +2,12 @@ use log::warn;
 use std::{
     fmt::Display,
     marker::PhantomData,
+    mem::ManuallyDrop,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     pin::pin,
     rc::Rc,
     sync::{
-        Arc, Mutex, Weak,
+        Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Context, Poll, Wake, Waker},
@@ -231,16 +232,31 @@ pub struct RunLoop {
 
 /// RAII ownership of one run loop initialization reference.
 ///
-/// Dropping the guard releases the reference acquired by [`RunLoop::init`]. The
-/// guard is intentionally `!Send + !Sync`, so the initialization reference is
-/// released on the same thread that acquired it.
+/// Dropping the guard releases the reference acquired by [`RunLoop::init`].
+///
+/// The guard may be released from a different host thread during plugin object
+/// teardown. [`RunLoopLocal`] remains run-loop-thread-only; only the lifetime
+/// reference itself is sendable.
 pub struct RunLoopGuard {
-    local: RunLoopLocal,
+    local: ManuallyDrop<RunLoopLocal>,
 }
 
 impl Drop for RunLoopGuard {
     fn drop(&mut self) {
-        RunLoop::release_guard();
+        if RunLoop::is_run_loop_thread() {
+            RunLoop::release_guard_on_run_loop_thread();
+            unsafe { ManuallyDrop::drop(&mut self.local) };
+        } else {
+            // Audio plugin hosts may destroy wrapper objects on a different
+            // thread from the one that created them. In that case, move the
+            // run-loop-thread-local capability into a shutdown/drop barrier so
+            // !Send tasks, callbacks, and platform state are released at an
+            // event-loop boundary. This follows the same safety shape as JUCE's
+            // MessageManagerLock: the message thread reaches a known safe point
+            // instead of another thread touching UI/run-loop state directly.
+            let local = unsafe { ManuallyDrop::take(&mut self.local) };
+            RunLoop::release_guard_from_other_thread(RunLoopLocalForRunLoopDrop::new(local));
+        }
     }
 }
 
@@ -251,9 +267,64 @@ impl RunLoopGuard {
     /// run loop thread, including callbacks and futures that capture `!Send`
     /// state.
     pub fn local(&self) -> &RunLoopLocal {
+        assert!(
+            RunLoop::is_run_loop_thread(),
+            "RunLoopGuard::local() is only valid on the run loop thread"
+        );
         &self.local
     }
 }
+
+unsafe impl Send for RunLoopGuard {}
+
+struct RunLoopLocalForRunLoopDrop {
+    local: ManuallyDrop<RunLoopLocal>,
+    dropped: bool,
+}
+
+impl RunLoopLocalForRunLoopDrop {
+    fn new(local: RunLoopLocal) -> Self {
+        Self {
+            local: ManuallyDrop::new(local),
+            dropped: false,
+        }
+    }
+
+    fn drop_on_run_loop_thread(mut self) {
+        assert!(
+            RunLoop::is_run_loop_thread(),
+            "RunLoopLocal must be dropped on the run loop thread"
+        );
+        unsafe { ManuallyDrop::drop(&mut self.local) };
+        self.dropped = true;
+    }
+}
+
+impl Drop for RunLoopLocalForRunLoopDrop {
+    fn drop(&mut self) {
+        if self.dropped {
+            return;
+        }
+
+        if RunLoop::is_run_loop_thread() {
+            unsafe { ManuallyDrop::drop(&mut self.local) };
+            self.dropped = true;
+        } else {
+            // If the host has already stopped pumping the run loop, the posted
+            // barrier may be rejected or abandoned. Dropping this local on the
+            // host's destructor thread could release native run-loop state on
+            // the wrong thread, so leaking is the safer failure mode for audio
+            // plugins.
+            warn!("leaking RunLoopLocal because it could not be dropped on the run loop thread");
+        }
+    }
+}
+
+// SAFETY: this wrapper is Send only to move ownership from an arbitrary host
+// destructor thread back to the recorded run-loop thread. `RunLoopLocal` remains
+// unusable off-thread; the wrapper either drops it on the run-loop thread or
+// deliberately leaks it.
+unsafe impl Send for RunLoopLocalForRunLoopDrop {}
 
 /// Capability for operations that must be created and driven on the run loop thread.
 ///
@@ -350,7 +421,7 @@ impl RunLoop {
             Self::initialize()?;
             INIT_COUNT.store(1, Ordering::SeqCst);
             return Ok(RunLoopGuard {
-                local: RunLoopLocal::new(Self::current_local()?),
+                local: ManuallyDrop::new(RunLoopLocal::new(Self::current_local()?)),
             });
         }
 
@@ -360,7 +431,7 @@ impl RunLoop {
 
         INIT_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(RunLoopGuard {
-            local: RunLoopLocal::new(Self::current_local()?),
+            local: ManuallyDrop::new(RunLoopLocal::new(Self::current_local()?)),
         })
     }
 
@@ -395,7 +466,7 @@ impl RunLoop {
             // Already where we want to be; nothing to rebuild.
             INIT_COUNT.fetch_add(1, Ordering::SeqCst);
             return Ok(RunLoopGuard {
-                local: RunLoopLocal::new(Self::current_local()?),
+                local: ManuallyDrop::new(RunLoopLocal::new(Self::current_local()?)),
             });
         }
 
@@ -409,18 +480,27 @@ impl RunLoop {
         debug_assert!(Self::is_run_loop_thread());
         INIT_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(RunLoopGuard {
-            local: RunLoopLocal::new(Self::current_local()?),
+            local: ManuallyDrop::new(RunLoopLocal::new(Self::current_local()?)),
         })
     }
 
-    /// Releases one run loop initialization reference.
-    fn release_guard() {
+    fn release_guard_on_run_loop_thread() {
         let _guard = INIT_MUTEX.lock().unwrap();
 
         let count = INIT_COUNT.fetch_sub(1, Ordering::SeqCst);
         if count == 1 {
-            // Perform actual cleanup on the last call
             Self::shutdown();
+        }
+    }
+
+    fn release_guard_from_other_thread(local: RunLoopLocalForRunLoopDrop) {
+        let _guard = INIT_MUTEX.lock().unwrap();
+
+        let count = INIT_COUNT.fetch_sub(1, Ordering::SeqCst);
+        if count == 1 {
+            Self::shutdown_from_other_thread(local);
+        } else {
+            Self::drop_local_from_other_thread(local);
         }
     }
 
@@ -518,6 +598,97 @@ impl RunLoop {
         {
             let mut run_loop_sender = RUN_LOOP_SENDER.lock().unwrap();
             *run_loop_sender = None;
+        }
+    }
+
+    fn shutdown_from_other_thread(local: RunLoopLocalForRunLoopDrop) {
+        let Some(instance) = RUN_LOOP_INSTANCE.get() else {
+            return;
+        };
+        let Some(sender) = RUN_LOOP_SENDER.lock().unwrap().take() else {
+            Self::cancel_pending_calls();
+            return;
+        };
+
+        // Stop every normal cloned sender before posting the shutdown barrier.
+        // Otherwise a host could enqueue plugin-DLL callbacks after the barrier,
+        // then unload the DLL as soon as this release returns.
+        instance.has_shutdown.store(true, Ordering::SeqCst);
+        instance.shutdown_token.store(true, Ordering::SeqCst);
+        Self::cancel_pending_calls();
+
+        let completed = Arc::new((Mutex::new(false), Condvar::new()));
+        let completed_for_barrier = completed.clone();
+        let sent = sender.send_shutdown_barrier(move || {
+            // Drop the guard's local capability before shutdown clears the
+            // recorded run-loop thread. The process-wide instance remains alive
+            // until `shutdown` clears it below, so platform cleanup still runs
+            // on this same event-loop turn.
+            local.drop_on_run_loop_thread();
+            Self::shutdown();
+            let (lock, condvar) = &*completed_for_barrier;
+            *lock.lock().unwrap() = true;
+            condvar.notify_one();
+        });
+
+        if !sent {
+            warn!(
+                "failed to post RunLoop shutdown barrier; leaking platform state to avoid cross-thread cleanup"
+            );
+            return;
+        }
+
+        let (lock, condvar) = &*completed;
+        let mut done = lock.lock().unwrap();
+        while !*done {
+            // This intentionally has the same blocking trade-off as JUCE's
+            // MessageManagerLock: if the host blocks the run-loop thread, this
+            // destructor can also block. Returning before the barrier runs is
+            // more dangerous for plugins because the host may unload the DLL
+            // while queued callbacks or tasks still reference plugin code.
+            done = condvar.wait(done).unwrap();
+        }
+    }
+
+    fn drop_local_from_other_thread(local: RunLoopLocalForRunLoopDrop) {
+        let Some(sender) = RUN_LOOP_SENDER.lock().unwrap().as_ref().cloned() else {
+            return;
+        };
+
+        let completed = Arc::new((Mutex::new(false), Condvar::new()));
+        let completed_for_barrier = completed.clone();
+        let sent = sender.send_shutdown_barrier(move || {
+            local.drop_on_run_loop_thread();
+            let (lock, condvar) = &*completed_for_barrier;
+            *lock.lock().unwrap() = true;
+            condvar.notify_one();
+        });
+
+        if !sent {
+            warn!(
+                "failed to post RunLoop local drop barrier; leaking local state to avoid cross-thread cleanup"
+            );
+            return;
+        }
+
+        // This intentionally has the same blocking trade-off as JUCE's
+        // MessageManagerLock: the destructor waits until the run-loop thread
+        // reaches the queued barrier. Returning earlier would allow the host to
+        // unload the plugin DLL while run-loop-local callbacks still own plugin
+        // code or data.
+        let (lock, condvar) = &*completed;
+        let mut done = lock.lock().unwrap();
+        while !*done {
+            done = condvar.wait(done).unwrap();
+        }
+    }
+
+    fn cancel_pending_calls() {
+        let pending_calls = std::mem::take(&mut *PENDING_CALLS.lock().unwrap());
+        for pending_call in pending_calls {
+            if let Some(pending_call) = pending_call.upgrade() {
+                pending_call.cancel();
+            }
         }
     }
 
@@ -1029,6 +1200,93 @@ mod tests {
 
         assert!(matches!(result1, Err(crate::JoinError::Aborted)));
         assert!(matches!(result2, Err(crate::JoinError::Aborted)));
+    }
+
+    #[test]
+    #[serial]
+    fn test_drop_guard_from_background_thread_uses_run_loop_shutdown_barrier() {
+        struct DropThreadRecorder {
+            dropped_on_run_loop: Arc<AtomicBool>,
+        }
+
+        impl Drop for DropThreadRecorder {
+            fn drop(&mut self) {
+                self.dropped_on_run_loop
+                    .store(RunLoop::is_run_loop_thread(), Ordering::SeqCst);
+            }
+        }
+
+        let guard = RunLoop::init().unwrap();
+        let run_loop = {
+            let local = guard.local();
+            RunLoopLocal::new(RunLoop {
+                inner: local.run_loop.inner.clone(),
+            })
+        };
+        let dropped_on_run_loop = Arc::new(AtomicBool::new(false));
+        let dropped_on_run_loop_for_task = dropped_on_run_loop.clone();
+        let _handle = run_loop.spawn(async move {
+            let _recorder = DropThreadRecorder {
+                dropped_on_run_loop: dropped_on_run_loop_for_task,
+            };
+            std::future::pending::<()>().await;
+        });
+
+        let release_done = Arc::new(AtomicBool::new(false));
+        let release_done_for_thread = release_done.clone();
+        let release_thread = thread::spawn(move || {
+            drop(guard);
+            release_done_for_thread.store(true, Ordering::SeqCst);
+        });
+
+        run_loop.block_on(futures::future::poll_fn(|cx| {
+            if release_done.load(Ordering::SeqCst) {
+                std::task::Poll::Ready(())
+            } else {
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+        }));
+        release_thread.join().unwrap();
+
+        assert!(dropped_on_run_loop.load(Ordering::SeqCst));
+        assert!(!RunLoop::is_initialized());
+        assert!(matches!(RunLoop::post(|_| {}), Err(Error::NotInitialized)));
+    }
+
+    #[test]
+    #[serial]
+    fn test_drop_non_last_guard_from_background_thread_keeps_run_loop_alive() {
+        let guard_to_drop = RunLoop::init().unwrap();
+        let guard_to_keep = RunLoop::init().unwrap();
+        let run_loop = {
+            let local = guard_to_keep.local();
+            RunLoopLocal::new(RunLoop {
+                inner: local.run_loop.inner.clone(),
+            })
+        };
+
+        let release_done = Arc::new(AtomicBool::new(false));
+        let release_done_for_thread = release_done.clone();
+        let release_thread = thread::spawn(move || {
+            drop(guard_to_drop);
+            release_done_for_thread.store(true, Ordering::SeqCst);
+        });
+
+        run_loop.block_on(futures::future::poll_fn(|cx| {
+            if release_done.load(Ordering::SeqCst) {
+                std::task::Poll::Ready(())
+            } else {
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+        }));
+        release_thread.join().unwrap();
+
+        assert!(RunLoop::is_initialized());
+        RunLoop::post(|_| {}).unwrap();
+
+        drop(guard_to_keep);
     }
 
     #[test]

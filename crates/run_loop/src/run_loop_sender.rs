@@ -58,4 +58,15 @@ impl RunLoopSender {
         let sent = self.platform_sender.send(callback);
         sent && !shutdown_token.load(Ordering::Acquire)
     }
+
+    pub(crate) fn send_shutdown_barrier<F>(&self, callback: F) -> bool
+    where
+        F: FnOnce() + 'static + Send,
+    {
+        // Shutdown marks the token before posting this barrier so every other
+        // cloned sender stops accepting plugin/DLL callbacks. The barrier itself
+        // is the one callback that must still reach the run-loop thread to abort
+        // !Send tasks and clear platform state at an event-loop boundary.
+        self.platform_sender.send(callback)
+    }
 }

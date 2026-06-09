@@ -9,12 +9,12 @@ use std::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    task::{Context, Wake, Waker},
+    task::{Context, Poll, Wake, Waker},
     thread::{self, ThreadId},
     time::Duration,
 };
 
-use futures::{Future, task::ArcWake};
+use futures::{Future, future::poll_fn, task::ArcWake};
 
 use crate::{
     Handle, JoinHandle, RunLoopSender, Task,
@@ -548,6 +548,44 @@ impl RunLoop {
             return Err(Error::NotInitialized);
         }
         Ok(())
+    }
+
+    /// Returns a Future that completes after the specified duration.
+    ///
+    /// Use [`RunLoopLocal::delay`] when already running inside a run-loop
+    /// callback. This associated function is for async code that does not own a
+    /// [`RunLoopLocal`]; it posts only the timer registration to the run loop and
+    /// wakes the awaiting task from the timer callback.
+    ///
+    /// Returns an error if there is no initialized run loop to post to.
+    pub async fn delay(duration: Duration) -> Result<()> {
+        let completed = Arc::new(AtomicBool::new(false));
+        let mut scheduled = false;
+
+        poll_fn(move |cx| {
+            if completed.load(Ordering::Acquire) {
+                return Poll::Ready(Ok(()));
+            }
+
+            if !scheduled {
+                scheduled = true;
+                let completed = completed.clone();
+                let waker = cx.waker().clone();
+                if let Err(error) = Self::post(move |run_loop| {
+                    run_loop
+                        .schedule(duration, move |_| {
+                            completed.store(true, Ordering::Release);
+                            waker.wake();
+                        })
+                        .detach();
+                }) {
+                    return Poll::Ready(Err(error));
+                }
+            }
+
+            Poll::Pending
+        })
+        .await
     }
 
     /// Runs a callback on the run loop thread and returns its result.

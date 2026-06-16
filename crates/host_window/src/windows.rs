@@ -28,7 +28,7 @@ const WINDOW_CLASS_NAME: &str = "novonotes.host_window.Window";
 /// The handle may be moved between threads, but the `HWND` it wraps belongs to
 /// the thread that created the window (Win32 ties window messages to that
 /// thread). The `Send`/`Sync` impls only make the handle transportable.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct HostWindowHandle {
     hwnd: HWND,
     callbacks: Arc<HostWindowCallbacks>,

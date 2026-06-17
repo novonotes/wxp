@@ -4,7 +4,6 @@ mod sys;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
-    rc::Weak,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -14,14 +13,6 @@ use self::sys::windows::*;
 
 pub(crate) type HandleType = usize;
 pub(crate) const INVALID_HANDLE: HandleType = 0;
-
-/// Lets other components observe the run loop window's raw messages.
-///
-/// Used so e.g. a WebView host can react to Win32 messages delivered to the
-/// loop's hidden window without owning the window procedure itself.
-pub(crate) trait MessageListener {
-    fn on_window_message(&self, hwnd: isize, message: u32, w_param: usize, l_param: isize);
-}
 
 pub(crate) struct PlatformRunLoop {
     state: Box<State>,
@@ -38,18 +29,6 @@ impl PlatformRunLoop {
 
     pub(crate) fn unschedule(&self, handle: HandleType) {
         self.state.unschedule(handle);
-    }
-
-    pub(crate) fn hwnd(&self) -> isize {
-        self.state.hwnd.get()
-    }
-
-    pub(crate) fn register_message_listener(&self, handler: Weak<dyn MessageListener>) {
-        self.state.register_message_listener(handler);
-    }
-
-    pub(crate) fn unregister_message_listener(&self, handler: &Weak<dyn MessageListener>) {
-        self.state.unregister_message_listener(handler);
     }
 
     #[must_use]
@@ -108,8 +87,6 @@ struct State {
 
     // Indicate that stop has been called
     stopping: Cell<bool>,
-
-    message_listeners: RefCell<Vec<Weak<dyn MessageListener>>>,
 }
 
 pub(crate) struct PollSession {
@@ -138,7 +115,6 @@ impl State {
             timers: RefCell::new(HashMap::new()),
             sender_callbacks: Arc::new(Mutex::new(Vec::new())),
             stopping: Cell::new(false),
-            message_listeners: RefCell::new(Vec::new()),
         }
     }
 
@@ -298,16 +274,6 @@ impl State {
     fn stop(&self) {
         unsafe { PostMessageW(self.hwnd.get(), WM_RUNLOOP_STOP, 0, 0) };
     }
-
-    fn register_message_listener(&self, handler: Weak<dyn MessageListener>) {
-        self.message_listeners.borrow_mut().push(handler);
-    }
-
-    fn unregister_message_listener(&self, handler: &Weak<dyn MessageListener>) {
-        self.message_listeners
-            .borrow_mut()
-            .retain(|h| !Weak::ptr_eq(h, handler));
-    }
 }
 
 impl Drop for State {
@@ -331,12 +297,6 @@ impl WindowAdapter for State {
                 self.stopping.set(true);
             }
             _ => {}
-        }
-        let handlers = self.message_listeners.borrow().clone();
-        for handler in handlers {
-            if let Some(handler) = handler.upgrade() {
-                handler.on_window_message(hwnd, msg, w_param, l_param);
-            }
         }
         unsafe { DefWindowProcW(hwnd, msg, w_param, l_param) }
     }

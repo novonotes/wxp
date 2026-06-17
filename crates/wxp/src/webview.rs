@@ -1,4 +1,4 @@
-use novonotes_run_loop::RunLoop;
+use novonotes_run_loop::{RunLoop, RunLoopGuard};
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -16,6 +16,9 @@ pub struct WxpWebView {
     // The native WebView still lives behind SendWrapper because WebViewDispatch must be able to
     // carry a weak handle across threads. Direct access remains confined to this module.
     inner: Arc<SendWrapper<RefCell<WebView>>>,
+    // Keep the process-wide run loop bound while the native WebView exists. Field order is
+    // intentional: `inner` must be dropped before this guard releases the run loop binding.
+    _run_loop_guard: RunLoopGuard,
     // Keep the owner !Send + !Sync so native WebView lifetime never moves away from the UI thread.
     _not_send_sync: PhantomData<Rc<()>>,
 }
@@ -87,8 +90,10 @@ impl WxpWebView {
         if !RunLoop::is_run_loop_thread() {
             return Err(Error::RunLoopNotInitialized);
         }
+        let run_loop_guard = RunLoop::init().map_err(|_| Error::RunLoopNotInitialized)?;
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
+            _run_loop_guard: run_loop_guard,
             _not_send_sync: PhantomData,
         })
     }

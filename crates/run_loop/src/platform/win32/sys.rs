@@ -5,110 +5,110 @@
 //! and names match the Win32 SDK verbatim — do not reorder struct fields.
 
 #[allow(non_camel_case_types, non_snake_case, clippy::upper_case_acronyms)]
-pub mod windows {
-    pub type DWORD = u32;
-    pub type HWND = isize;
-    pub type HANDLE = isize;
-    pub type LPARAM = isize;
-    pub type WPARAM = usize;
-    pub type LRESULT = isize;
-    pub type PWSTR = *mut u16;
-    pub type HINSTANCE = isize;
-    pub type WINDOW_EX_STYLE = u32;
-    pub type WINDOW_STYLE = u32;
-    pub type HMENU = isize;
-    pub type WINDOW_LONG_PTR_INDEX = i32;
-    pub type HCURSOR = isize;
-    pub type WNDCLASS_STYLES = u32;
-    pub type HICON = isize;
-    pub type HBRUSH = isize;
-    pub type BOOL = i32;
-    pub type WNDPROC = unsafe extern "system" fn(
+pub(crate) mod windows {
+    pub(crate) type DWORD = u32;
+    pub(crate) type HWND = isize;
+    pub(crate) type HANDLE = isize;
+    pub(crate) type LPARAM = isize;
+    pub(crate) type WPARAM = usize;
+    pub(crate) type LRESULT = isize;
+    pub(crate) type PWSTR = *mut u16;
+    pub(crate) type HINSTANCE = isize;
+    pub(crate) type WINDOW_EX_STYLE = u32;
+    pub(crate) type WINDOW_STYLE = u32;
+    pub(crate) type HMENU = isize;
+    pub(crate) type WINDOW_LONG_PTR_INDEX = i32;
+    pub(crate) type HCURSOR = isize;
+    pub(crate) type WNDCLASS_STYLES = u32;
+    pub(crate) type HICON = isize;
+    pub(crate) type HBRUSH = isize;
+    pub(crate) type BOOL = i32;
+    pub(crate) type WNDPROC = unsafe extern "system" fn(
         param0: HWND,
         param1: u32,
         param2: WPARAM,
         param3: LPARAM,
     ) -> LRESULT;
-    pub type TIMERPROC =
+    pub(crate) type TIMERPROC =
         unsafe extern "system" fn(param0: HWND, param1: u32, param2: usize, param3: u32);
-    pub type QUEUE_STATUS_FLAGS = u32;
-    pub type MSG_WAIT_FOR_MULTIPLE_OBJECTS_EX_FLAGS = u32;
-    pub type PEEK_MESSAGE_REMOVE_TYPE = u32;
+    pub(crate) type QUEUE_STATUS_FLAGS = u32;
+    pub(crate) type MSG_WAIT_FOR_MULTIPLE_OBJECTS_EX_FLAGS = u32;
+    pub(crate) type PEEK_MESSAGE_REMOVE_TYPE = u32;
 
-    pub const GWLP_USERDATA: WINDOW_LONG_PTR_INDEX = -21i32;
-    pub const IDC_ARROW: PWSTR = 32512i32 as _;
+    pub(crate) const GWLP_USERDATA: WINDOW_LONG_PTR_INDEX = -21i32;
+    pub(crate) const IDC_ARROW: PWSTR = 32512i32 as _;
 
-    pub const WM_NCCREATE: u32 = 129u32;
-    pub const WM_NCDESTROY: u32 = 130u32;
-    pub const WM_TIMER: u32 = 275u32;
-    pub const WM_USER: u32 = 1024u32;
+    pub(crate) const WM_NCCREATE: u32 = 129u32;
+    pub(crate) const WM_NCDESTROY: u32 = 130u32;
+    pub(crate) const WM_TIMER: u32 = 275u32;
+    pub(crate) const WM_USER: u32 = 1024u32;
 
-    pub const HWND_MESSAGE: isize = (-3i32) as _;
+    pub(crate) const HWND_MESSAGE: isize = (-3i32) as _;
 
-    pub const QS_POSTMESSAGE: QUEUE_STATUS_FLAGS = 8u32;
-    pub const QS_TIMER: QUEUE_STATUS_FLAGS = 0x10u32;
+    pub(crate) const QS_POSTMESSAGE: QUEUE_STATUS_FLAGS = 8u32;
+    pub(crate) const QS_TIMER: QUEUE_STATUS_FLAGS = 0x10u32;
 
-    pub const MWMO_INPUTAVAILABLE: MSG_WAIT_FOR_MULTIPLE_OBJECTS_EX_FLAGS = 4u32;
+    pub(crate) const MWMO_INPUTAVAILABLE: MSG_WAIT_FOR_MULTIPLE_OBJECTS_EX_FLAGS = 4u32;
 
-    pub const PM_REMOVE: PEEK_MESSAGE_REMOVE_TYPE = 1u32;
-    pub const PM_NOYIELD: PEEK_MESSAGE_REMOVE_TYPE = 2u32;
+    pub(crate) const PM_REMOVE: PEEK_MESSAGE_REMOVE_TYPE = 1u32;
+    pub(crate) const PM_NOYIELD: PEEK_MESSAGE_REMOVE_TYPE = 2u32;
 
     #[repr(C)]
-    pub struct WNDCLASSW {
-        pub style: WNDCLASS_STYLES,
-        pub lpfnWndProc: WNDPROC,
-        pub cbClsExtra: i32,
-        pub cbWndExtra: i32,
-        pub hInstance: HINSTANCE,
-        pub hIcon: HICON,
-        pub hCursor: HCURSOR,
-        pub hbrBackground: HBRUSH,
-        pub lpszMenuName: PWSTR,
-        pub lpszClassName: PWSTR,
+    pub(crate) struct WNDCLASSW {
+        pub(crate) style: WNDCLASS_STYLES,
+        pub(crate) lpfnWndProc: WNDPROC,
+        pub(crate) cbClsExtra: i32,
+        pub(crate) cbWndExtra: i32,
+        pub(crate) hInstance: HINSTANCE,
+        pub(crate) hIcon: HICON,
+        pub(crate) hCursor: HCURSOR,
+        pub(crate) hbrBackground: HBRUSH,
+        pub(crate) lpszMenuName: PWSTR,
+        pub(crate) lpszClassName: PWSTR,
     }
 
     #[repr(C)]
-    pub struct CREATESTRUCTW {
-        pub lpCreateParams: *mut ::core::ffi::c_void,
-        pub hInstance: HINSTANCE,
-        pub hMenu: HMENU,
-        pub hwndParent: HWND,
-        pub cy: i32,
-        pub cx: i32,
-        pub y: i32,
-        pub x: i32,
-        pub style: i32,
-        pub lpszName: PWSTR,
-        pub lpszClass: PWSTR,
-        pub dwExStyle: u32,
-    }
-
-    #[repr(C)]
-    #[derive(Default)]
-    pub struct POINT {
-        pub x: i32,
-        pub y: i32,
+    pub(crate) struct CREATESTRUCTW {
+        pub(crate) lpCreateParams: *mut ::core::ffi::c_void,
+        pub(crate) hInstance: HINSTANCE,
+        pub(crate) hMenu: HMENU,
+        pub(crate) hwndParent: HWND,
+        pub(crate) cy: i32,
+        pub(crate) cx: i32,
+        pub(crate) y: i32,
+        pub(crate) x: i32,
+        pub(crate) style: i32,
+        pub(crate) lpszName: PWSTR,
+        pub(crate) lpszClass: PWSTR,
+        pub(crate) dwExStyle: u32,
     }
 
     #[repr(C)]
     #[derive(Default)]
-    pub struct MSG {
-        pub hwnd: HWND,
-        pub message: u32,
-        pub wParam: WPARAM,
-        pub lParam: LPARAM,
-        pub time: u32,
-        pub pt: POINT,
+    pub(crate) struct POINT {
+        pub(crate) x: i32,
+        pub(crate) y: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub(crate) struct MSG {
+        pub(crate) hwnd: HWND,
+        pub(crate) message: u32,
+        pub(crate) wParam: WPARAM,
+        pub(crate) lParam: LPARAM,
+        pub(crate) time: u32,
+        pub(crate) pt: POINT,
     }
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        pub fn GetModuleHandleW(lpmodulename: PWSTR) -> HINSTANCE;
+        pub(crate) fn GetModuleHandleW(lpmodulename: PWSTR) -> HINSTANCE;
     }
 
     #[link(name = "user32")]
     unsafe extern "system" {
-        pub fn CreateWindowExW(
+        pub(crate) fn CreateWindowExW(
             dwexstyle: WINDOW_EX_STYLE,
             lpclassname: PWSTR,
             lpwindowname: PWSTR,
@@ -122,52 +122,51 @@ pub mod windows {
             hinstance: HINSTANCE,
             lpparam: *const ::core::ffi::c_void,
         ) -> HWND;
-        pub fn DestroyWindow(hWnd: HWND) -> BOOL;
-        pub fn DefWindowProcW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT;
-        pub fn GetWindowLongPtrW(hwnd: HWND, nindex: WINDOW_LONG_PTR_INDEX) -> isize;
-        pub fn LoadCursorW(hinstance: HINSTANCE, lpcursorname: PWSTR) -> HCURSOR;
-        pub fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> u16;
-        pub fn SetWindowLongPtrW(
+        pub(crate) fn DestroyWindow(hWnd: HWND) -> BOOL;
+        pub(crate) fn DefWindowProcW(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+        ) -> LRESULT;
+        pub(crate) fn GetWindowLongPtrW(hwnd: HWND, nindex: WINDOW_LONG_PTR_INDEX) -> isize;
+        pub(crate) fn LoadCursorW(hinstance: HINSTANCE, lpcursorname: PWSTR) -> HCURSOR;
+        pub(crate) fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> u16;
+        pub(crate) fn SetWindowLongPtrW(
             hwnd: HWND,
             nindex: WINDOW_LONG_PTR_INDEX,
             dwnewlong: isize,
         ) -> isize;
-        pub fn UnregisterClassW(lpclassname: PWSTR, hinstance: HINSTANCE) -> BOOL;
-        pub fn DispatchMessageW(lpmsg: *const MSG) -> LRESULT;
-        pub fn GetMessageW(
+        pub(crate) fn UnregisterClassW(lpclassname: PWSTR, hinstance: HINSTANCE) -> BOOL;
+        pub(crate) fn DispatchMessageW(lpmsg: *const MSG) -> LRESULT;
+        pub(crate) fn GetMessageW(
             lpmsg: *mut MSG,
             hwnd: HWND,
             wmsgfiltermin: u32,
             wmsgfiltermax: u32,
         ) -> BOOL;
-        pub fn FindWindowExW(
-            hwndparent: HWND,
-            hwndchildafter: HWND,
-            lpszclass: PWSTR,
-            lpszwindow: PWSTR,
-        ) -> HWND;
-        pub fn PostMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> BOOL;
-        pub fn SetTimer(
+        pub(crate) fn PostMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> BOOL;
+        pub(crate) fn SetTimer(
             hwnd: HWND,
             nidevent: usize,
             uelapse: u32,
             lptimerfunc: ::core::option::Option<TIMERPROC>,
         ) -> usize;
-        pub fn TranslateMessage(lpmsg: *const MSG) -> BOOL;
-        pub fn MsgWaitForMultipleObjectsEx(
+        pub(crate) fn TranslateMessage(lpmsg: *const MSG) -> BOOL;
+        pub(crate) fn MsgWaitForMultipleObjectsEx(
             ncount: u32,
             phandles: *const HANDLE,
             dwmilliseconds: u32,
             dwwakemask: QUEUE_STATUS_FLAGS,
             dwflags: MSG_WAIT_FOR_MULTIPLE_OBJECTS_EX_FLAGS,
         ) -> u32;
-        pub fn PeekMessageW(
+        pub(crate) fn PeekMessageW(
             lpmsg: *mut MSG,
             hwnd: HWND,
             wmsgfiltermin: u32,
             wmsgfiltermax: u32,
             wremovemsg: PEEK_MESSAGE_REMOVE_TYPE,
         ) -> BOOL;
-        pub fn GetCurrentThreadId() -> DWORD;
+        pub(crate) fn GetCurrentThreadId() -> DWORD;
     }
 }

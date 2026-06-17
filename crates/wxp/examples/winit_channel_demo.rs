@@ -19,7 +19,7 @@ use winit::{
 };
 use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize as WxpLogicalSize};
-use wxp::{Channel, Rect, WxpCommandHandler, WxpWebViewBuilder};
+use wxp::{Rect, WxpCommandHandler, WxpWebViewBuilder};
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -140,18 +140,15 @@ impl ApplicationHandler<UserEvent> for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
-            _ => {}
+        if event == WindowEvent::CloseRequested {
+            event_loop.exit();
         }
     }
 
     fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::StartStreaming(channel_id, channel) => {
-                info!("Event: Starting streaming to channel {}", channel_id);
+                info!("Event: Starting streaming to channel {channel_id}");
                 // Send the first message
                 let _ = self
                     .event_loop_proxy
@@ -213,14 +210,14 @@ impl App {
             let proxy = proxy_clone.clone();
             // Extract the JS Channel. `Arc` so each streaming step keeps a
             // clone; the JS stream ends when the last clone drops.
-            let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
+            let channel = Arc::new(ctx.channel("channel").unwrap());
 
             // Async block
             async move {
                 // Error handling
                 let channel_id = channel.id();
 
-                info!("Received channel ID: {}", channel_id);
+                info!("Received channel ID: {channel_id}");
 
                 // Notify the event loop to start streaming
                 let _ = proxy.send_event(UserEvent::StartStreaming(

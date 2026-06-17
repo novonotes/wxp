@@ -28,9 +28,9 @@ where
     async fn execute(&self, ctx: CommandContext<'_>) -> Result<Value, Value> {
         match self.run(ctx).await {
             Ok(value) => serde_json::to_value(value)
-                .map_err(|e| Value::String(format!("Failed to serialize result: {}", e))),
+                .map_err(|e| Value::String(format!("Failed to serialize result: {e}"))),
             Err(error) => Err(serde_json::to_value(error)
-                .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {}", e)))),
+                .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {e}")))),
         }
     }
 }
@@ -47,9 +47,9 @@ where
     async fn execute(&self, ctx: CommandContext<'_>) -> Result<Value, Value> {
         match self.run(ctx).await {
             Ok(value) => serde_json::to_value(value)
-                .map_err(|e| Value::String(format!("Failed to serialize result: {}", e))),
+                .map_err(|e| Value::String(format!("Failed to serialize result: {e}"))),
             Err(error) => Err(serde_json::to_value(error)
-                .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {}", e)))),
+                .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {e}")))),
         }
     }
 }

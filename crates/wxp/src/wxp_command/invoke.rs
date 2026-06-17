@@ -45,7 +45,7 @@ impl InvokeResponse {
             value: None,
             error: Some(
                 serde_json::to_value(error)
-                    .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {}", e))),
+                    .unwrap_or_else(|e| Value::String(format!("Failed to serialize error: {e}"))),
             ),
         }
     }

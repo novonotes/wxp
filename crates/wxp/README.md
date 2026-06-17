@@ -111,7 +111,7 @@ await invoke("subscribe_events", { channel: ch });
 ```rust
 handler.register_sync("subscribe_events", |ctx| {
     // Retrieve the channel passed as an argument
-    let channel = ctx.arg::<Channel>("channel").unwrap();
+    let channel = ctx.channel("channel").unwrap();
 
     // Send a JSON message
     channel.send(json!({ "type": "connected" }))?;

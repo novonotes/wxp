@@ -1,8 +1,8 @@
 # host_window
 
-> **Note: This crate is not intended for external use.**
+> **Note:** This crate is primarily maintained for NovoNotes plugin-host tooling.
 >
-> It is an internal utility crate exclusively for the development and testing of the `wxp` crate. API stability is not guaranteed and it may change without notice.
+> External use is possible, but the API is optimized for wxp and NovoNotes product needs.
 
 ## Overview
 

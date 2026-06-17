@@ -26,8 +26,8 @@ use self::sys::pthread_threadid_np;
 
 mod sys;
 
-pub type HandleType = usize;
-pub const INVALID_HANDLE: HandleType = 0;
+pub(crate) type HandleType = usize;
+pub(crate) const INVALID_HANDLE: HandleType = 0;
 
 type Callback = Box<dyn FnOnce()>;
 
@@ -68,7 +68,7 @@ impl State {
         // A timestamp is used instead of the DLL's identity so that repeated
         // unload/reload cycles always start with a clean execution environment.
         let timestamp_suffix = crate::util::get_timestamp_suffix();
-        let run_loop_mode = format!("IrondashRunLoopMode_{}", timestamp_suffix);
+        let run_loop_mode = format!("IrondashRunLoopMode_{timestamp_suffix}");
 
         Self {
             callbacks: Vec::new(),
@@ -288,7 +288,7 @@ impl Drop for State {
     }
 }
 
-pub struct PlatformRunLoop {
+pub(crate) struct PlatformRunLoop {
     next_handle: Cell<HandleType>,
     state: Arc<Mutex<State>>,
     running: Cell<bool>,
@@ -302,7 +302,7 @@ impl Drop for PlatformRunLoop {
     }
 }
 
-pub struct PollSession {
+pub(crate) struct PollSession {
     /// Polling state for `RunLoop::block_on`.
     ///
     /// For the first few milliseconds, poll with a short timeout for low latency.
@@ -312,7 +312,7 @@ pub struct PollSession {
 }
 
 impl PollSession {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start: Instant::now(),
             timed_out: false,
@@ -321,7 +321,7 @@ impl PollSession {
 }
 
 impl PlatformRunLoop {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             next_handle: Cell::new(INVALID_HANDLE + 1),
             state: Arc::new(Mutex::new(State::new())),
@@ -335,14 +335,14 @@ impl PlatformRunLoop {
         r
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         let state_clone = self.state.clone();
         let mut state = self.state.lock().unwrap();
         state.timers.remove(&handle);
         state.schedule(state_clone);
     }
 
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
@@ -364,7 +364,7 @@ impl PlatformRunLoop {
         handle
     }
 
-    pub fn run(&self) {
+    pub(crate) fn run(&self) {
         self.running.set(true);
         // Run-loop will exit immediately if it has no sources, but that's not what we
         // expect from run(). To workaround it schedule a very distant timer.
@@ -381,7 +381,7 @@ impl PlatformRunLoop {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn run_app(&self) {
+    pub(crate) fn run_app(&self) {
         use objc2_app_kit::NSApplication;
         use objc2_foundation::MainThreadMarker;
 
@@ -395,7 +395,7 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.running.set(false);
         unsafe {
             let run_loop: CFRunLoopRef =
@@ -406,7 +406,7 @@ impl PlatformRunLoop {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn stop_app(&self) {
+    pub(crate) fn stop_app(&self) {
         use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
         use objc2_foundation::{CGPoint, MainThreadMarker};
 
@@ -421,7 +421,7 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn poll_once(&self, poll_session: &mut PollSession) {
+    pub(crate) fn poll_once(&self, poll_session: &mut PollSession) {
         let run_loop_mode = self.state.lock().unwrap().run_loop_mode.clone();
         if !poll_session.timed_out {
             // For the first 6ms, poll with a short timeout for low latency.
@@ -433,7 +433,7 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn new_sender(&self) -> PlatformRunLoopSender {
+    pub(crate) fn new_sender(&self) -> PlatformRunLoopSender {
         PlatformRunLoopSender {
             state: Arc::downgrade(&self.state),
         }
@@ -441,12 +441,12 @@ impl PlatformRunLoop {
 }
 
 #[derive(Clone)]
-pub struct PlatformRunLoopSender {
+pub(crate) struct PlatformRunLoopSender {
     state: std::sync::Weak<Mutex<State>>,
 }
 
 impl PlatformRunLoopSender {
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {

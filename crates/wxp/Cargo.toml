@@ -31,6 +31,7 @@ chrono = "0.4"
 winit = "0.30"
 novonotes_run_loop = { workspace = true }
 host_window = { workspace = true }
+run_loop_test_utils = { workspace = true }
 
 [[test]]
 name = "wxp_webview_test"

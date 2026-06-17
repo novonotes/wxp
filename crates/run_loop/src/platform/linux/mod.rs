@@ -19,10 +19,10 @@ use self::sys::libc;
 
 type SourceId = c_uint;
 
-pub type HandleType = usize;
-pub const INVALID_HANDLE: HandleType = 0;
+pub(crate) type HandleType = usize;
+pub(crate) const INVALID_HANDLE: HandleType = 0;
 
-pub struct PollSession {
+pub(crate) struct PollSession {
     /// Polling state for `RunLoop::block_on`.
     ///
     /// For the first few milliseconds, poll non-blocking aggressively.
@@ -32,7 +32,7 @@ pub struct PollSession {
 }
 
 impl PollSession {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start: Instant::now(),
             timed_out: false,
@@ -40,7 +40,7 @@ impl PollSession {
     }
 }
 
-pub struct PlatformRunLoop {
+pub(crate) struct PlatformRunLoop {
     context: ContextHolder,
     main_loop: *mut GMainLoop,
     next_handle: Cell<HandleType>,
@@ -157,7 +157,7 @@ static ON_LOAD: extern "C" fn() = {
 
 #[allow(unused_variables)]
 impl PlatformRunLoop {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         // Only the (approximate) main thread may init GTK; doing it from a
         // worker would either be rejected by GTK or fight the host that already
         // owns the UI. `Once` keeps it to a single attempt process-wide.
@@ -204,7 +204,7 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         let source = self.timers.borrow_mut().remove(&handle);
         if let Some(source) = source {
             context_remove_source(self.context.0, source);
@@ -218,7 +218,7 @@ impl PlatformRunLoop {
     }
 
     #[must_use]
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
@@ -240,23 +240,23 @@ impl PlatformRunLoop {
         handle
     }
 
-    pub fn run(&self) {
+    pub(crate) fn run(&self) {
         unsafe { g_main_loop_run(self.main_loop) };
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         unsafe { g_main_loop_quit(self.main_loop) };
     }
 
-    pub fn run_app(&self) {
+    pub(crate) fn run_app(&self) {
         unsafe { gtk_main() };
     }
 
-    pub fn stop_app(&self) {
+    pub(crate) fn stop_app(&self) {
         unsafe { gtk_main_quit() };
     }
 
-    pub fn poll_once(&self, poll_session: &mut PollSession) {
+    pub(crate) fn poll_once(&self, poll_session: &mut PollSession) {
         if !poll_session.timed_out {
             // For the first 6ms, poll non-blocking aggressively
             unsafe { g_main_context_iteration(self.context.0, GFALSE) };
@@ -267,11 +267,11 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn is_main_thread() -> bool {
+    pub(crate) fn is_main_thread() -> bool {
         unsafe { g_main_context_is_owner(g_main_context_default()) == GTRUE }
     }
 
-    pub fn new_sender(self: &Rc<Self>) -> PlatformRunLoopSender {
+    pub(crate) fn new_sender(self: &Rc<Self>) -> PlatformRunLoopSender {
         PlatformRunLoopSender::new(self.context.clone())
     }
 }
@@ -321,7 +321,7 @@ impl Drop for ContextHolder {
 }
 
 #[derive(Clone)]
-pub struct PlatformRunLoopSender {
+pub(crate) struct PlatformRunLoopSender {
     context: ContextHolder,
     thread_id: PlatformThreadId,
 }
@@ -335,7 +335,7 @@ impl PlatformRunLoopSender {
         }
     }
 
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {

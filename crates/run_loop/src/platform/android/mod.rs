@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub type HandleType = usize;
-pub const INVALID_HANDLE: HandleType = 0;
+pub(crate) type HandleType = usize;
+pub(crate) const INVALID_HANDLE: HandleType = 0;
 
 use sys::{libc::*, ndk_sys::*};
 
@@ -28,7 +28,7 @@ use self::sys::libc;
 /// `state_ptr` is a leaked `Weak<State>` handed to the C callbacks and reclaimed
 /// in `Drop`. A `Weak` (not `Rc`) is used so a pending looper callback can never
 /// keep `State` alive past this object's lifetime.
-pub struct PlatformRunLoop {
+pub(crate) struct PlatformRunLoop {
     looper: *mut ALooper,
     pipes: [c_int; 2],
     state: Rc<State>,
@@ -50,7 +50,7 @@ struct State {
 
 type SenderCallback = Box<dyn FnOnce() + Send>;
 
-pub struct PollSession {
+pub(crate) struct PollSession {
     /// Polling state for `RunLoop::block_on`.
     ///
     /// For the first few milliseconds, poll non-blocking aggressively.
@@ -60,7 +60,7 @@ pub struct PollSession {
 }
 
 impl PollSession {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start: Instant::now(),
             timed_out: false,
@@ -75,7 +75,7 @@ struct Callbacks {
 
 #[allow(unused_variables)]
 impl PlatformRunLoop {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let looper = unsafe {
             let mut looper = ALooper_forThread();
             if looper.is_null() {
@@ -168,7 +168,7 @@ impl PlatformRunLoop {
         1
     }
 
-    pub fn poll_once(&self, poll_session: &mut PollSession) {
+    pub(crate) fn poll_once(&self, poll_session: &mut PollSession) {
         let timeout_ms = if poll_session.timed_out { -1 } else { 0 };
         unsafe {
             ALooper_pollOnce(
@@ -183,25 +183,25 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         self.state.unschedule(handle);
     }
 
     #[must_use]
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
         self.state.schedule(in_time, callback)
     }
 
-    pub fn new_sender(&self) -> PlatformRunLoopSender {
+    pub(crate) fn new_sender(&self) -> PlatformRunLoopSender {
         PlatformRunLoopSender {
             callbacks: Arc::downgrade(&self.state.callbacks),
         }
     }
 
-    pub fn run(&self) {
+    pub(crate) fn run(&self) {
         self.running.set(true);
         while self.running.get() {
             let res = unsafe {
@@ -218,7 +218,7 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.running.set(false);
         unsafe { ALooper_wake(self.looper) };
     }
@@ -293,7 +293,7 @@ impl State {
         r
     }
 
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
@@ -312,7 +312,7 @@ impl State {
         handle
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         self.timers.borrow_mut().remove(&handle);
         self.wake_up_at(self.next_timer());
     }
@@ -332,13 +332,13 @@ impl Drop for PlatformRunLoop {
 }
 
 #[derive(Clone)]
-pub struct PlatformRunLoopSender {
+pub(crate) struct PlatformRunLoopSender {
     callbacks: std::sync::Weak<Mutex<Callbacks>>,
 }
 
 #[allow(unused_variables)]
 impl PlatformRunLoopSender {
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {

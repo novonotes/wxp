@@ -57,8 +57,8 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `web_context` - Mutable reference to a wxp WebContext.
-    ///                   In a plugin environment, typically use `<system temp>/<plugin name>`.
+    /// * `web_context` - Mutable reference to a wxp WebContext. In a plugin environment, typically
+    ///   use `<system temp>/<plugin name>`.
     pub fn new(web_context: &'a mut WebContext) -> Self {
         // In plugin UIs, the first click on an inactive editor should still reach the WebView
         // so controls like knobs can start dragging immediately after window activation.
@@ -158,12 +158,8 @@ impl<'a> WxpWebViewBuilder<'a> {
         zip_bytes: &'static [u8],
     ) -> Result<Self> {
         let cursor = Cursor::new(zip_bytes);
-        let archive = ZipArchive::new(cursor).map_err(|err| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                err.to_string(),
-            ))
-        })?;
+        let archive = ZipArchive::new(cursor)
+            .map_err(|err| Error::Io(std::io::Error::other(err.to_string())))?;
         let mut filepath_to_index = HashMap::<String, usize>::new();
         archive.file_names().enumerate().for_each(|(i, name)| {
             filepath_to_index.insert(name.to_string(), i);
@@ -271,7 +267,7 @@ impl<'a> WxpWebViewBuilder<'a> {
                         .header("Content-Type", "text/plain")
                         .header("Access-Control-Allow-Origin", "*")
                         .body(
-                            format!("Internal Server Error: {}", err)
+                            format!("Internal Server Error: {err}")
                                 .as_bytes()
                                 .to_vec()
                                 .into(),

@@ -1,4 +1,4 @@
-use novonotes_run_loop::{RunLoop, RunLoopSender};
+use novonotes_run_loop::RunLoop;
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -16,7 +16,6 @@ pub struct WxpWebView {
     // The native WebView still lives behind SendWrapper because WebViewDispatch must be able to
     // carry a weak handle across threads. Direct access remains confined to this module.
     inner: Arc<SendWrapper<RefCell<WebView>>>,
-    sender: RunLoopSender,
     // Keep the owner !Send + !Sync so native WebView lifetime never moves away from the UI thread.
     _not_send_sync: PhantomData<Rc<()>>,
 }
@@ -35,7 +34,6 @@ pub struct WxpWebView {
 pub struct WebViewDispatch {
     // Weak ownership keeps this handle Send + Sync without making it a hidden lifetime owner.
     inner: Weak<SendWrapper<RefCell<WebView>>>,
-    sender: RunLoopSender,
 }
 
 struct AbandonedPostCleanup<C: FnOnce() + Send + 'static> {
@@ -91,7 +89,6 @@ impl WxpWebView {
         }
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
-            sender: RunLoop::sender().map_err(|_| Error::RunLoopNotInitialized)?,
             _not_send_sync: PhantomData,
         })
     }
@@ -101,7 +98,6 @@ impl WxpWebView {
         WebViewDispatch {
             // Dispatch handles intentionally do not prolong the native WebView lifetime.
             inner: Arc::downgrade(&self.inner),
-            sender: self.sender.clone(),
         }
     }
 }
@@ -191,12 +187,12 @@ impl WebViewDispatch {
             cleanup.disarm();
         };
 
-        if self.sender.is_same_thread() {
+        if RunLoop::is_run_loop_thread() {
             // Running inline preserves same-thread WebView error reporting and avoids queueing work
             // behind the command currently servicing the WebView.
             run();
-        } else if !self.sender.send(run) {
-            return Err(Error::RunLoopNotInitialized);
+        } else {
+            RunLoop::post(move |_| run()).map_err(|_| Error::RunLoopNotInitialized)?;
         }
 
         Ok(())

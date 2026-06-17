@@ -9,12 +9,13 @@ use host_window::{HostWindowHandle, create_window};
 use log::info;
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize};
-use wxp::{Channel, Rect, WxpCommandHandler, WxpWebViewBuilder};
+use wxp::{Rect, WxpCommandHandler, WxpWebViewBuilder};
 
 const HTML: &str = r#"<!DOCTYPE html>
 <html>
@@ -96,14 +97,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         // `Channel` is extracted like any other arg, but it carries a handle to
         // the JS-side callback. Wrap in `Arc` so each deferred send below can
         // hold its own clone; the stream stays open until the last clone drops.
-        let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
+        let channel = Arc::new(ctx.channel("channel").unwrap());
 
         // Async block
         async move {
             // Get the channel ID
             let channel_id = channel.id();
 
-            info!("Received channel ID: {}", channel_id);
+            info!("Received channel ID: {channel_id}");
 
             // Schedule message sending on the RunLoop
             for i in 1..=10 {
@@ -117,10 +118,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 "timestamp": chrono::Local::now().format("%H:%M:%S").to_string()
                             });
 
-                            info!("Sending message #{}", i);
+                            info!("Sending message #{i}");
 
                             if let Err(e) = channel_clone.send(message) {
-                                info!("Failed to send message #{}: {:?}", i, e);
+                                info!("Failed to send message #{i}: {e:?}");
                             }
                         })
                         .detach();
@@ -151,7 +152,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
 
     // Variable to hold resources
-    let resources = Arc::new(parking_lot::Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_for_schedule = resources.clone();
 
     // Build the WebView on the run loop thread (it is thread-affine) just
@@ -187,7 +188,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         window.show();
 
         // Save resources
-        *resources_for_schedule.lock() = Some(Resources {
+        *resources_for_schedule.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });

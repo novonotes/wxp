@@ -201,10 +201,7 @@ impl Drop for RunLoopInner {
             // Log a warning if any are still alive.
             let active_count = tasks.iter().filter(|t| t.upgrade().is_some()).count();
             if active_count > 0 {
-                warn!(
-                    "Warning: RunLoop dropped with {} active tasks",
-                    active_count
-                );
+                warn!("Warning: RunLoop dropped with {active_count} active tasks");
             }
         }
 
@@ -289,9 +286,6 @@ pub enum Error {
 
     /// Called from a thread that is not the run loop thread.
     NotRunLoopThread,
-
-    #[cfg(test)]
-    RunLoopThreadNotSet,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -319,11 +313,6 @@ impl Display for Error {
                           If this is a test, use serial_test::serial to run the test in serial."
                 )
             }
-            #[cfg(test)]
-            Error::RunLoopThreadNotSet => write!(
-                f,
-                "main thread was not set. call RunLoop::set_main_thread() from main thread"
-            ),
         }
     }
 }
@@ -372,45 +361,6 @@ impl RunLoop {
     /// and [`call`](Self::call).
     pub fn is_initialized() -> bool {
         INIT_COUNT.load(Ordering::SeqCst) > 0
-    }
-
-    #[cfg(test)]
-    /// Forcibly rebinds the run loop to the current thread.
-    ///
-    /// Mainly a test-suite escape hatch: tests are serialized but a previous
-    /// test may have left the loop bound to a now-dead thread. Rather than
-    /// failing, tear the old loop down and rebuild it here, preserving the
-    /// existing init count so reference counting stays balanced.
-    pub fn ensure_run_loop_on_current_thread() -> Result<RunLoopGuard> {
-        let guard = INIT_MUTEX.lock().unwrap();
-        let count = INIT_COUNT.load(Ordering::SeqCst);
-
-        if count == 0 {
-            // Nothing initialized yet — the normal path is sufficient.
-            drop(guard);
-            return Self::init();
-        }
-
-        if Self::is_run_loop_thread() {
-            // Already where we want to be; nothing to rebuild.
-            INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-            return Ok(RunLoopGuard {
-                local: RunLoopLocal::new(Self::current_local()?),
-            });
-        }
-
-        // Bound to a different (likely dead) thread: rebuild in place and
-        // restore the original count so existing guards stay balanced.
-        INIT_COUNT.store(0, Ordering::SeqCst);
-        Self::shutdown();
-
-        Self::initialize()?;
-        INIT_COUNT.store(count, Ordering::SeqCst);
-        debug_assert!(Self::is_run_loop_thread());
-        INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(RunLoopGuard {
-            local: RunLoopLocal::new(Self::current_local()?),
-        })
     }
 
     /// Releases one run loop initialization reference.
@@ -488,8 +438,7 @@ impl RunLoop {
                             }))
                         {
                             log::error!(
-                                "panic during task abort in shutdown (ignored to prevent crash): {:?}",
-                                e
+                                "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
                             );
                         }
                     }
@@ -630,8 +579,7 @@ impl RunLoop {
         var.get_blocking()
     }
 
-    #[doc(hidden)]
-    pub fn sender() -> Result<RunLoopSender> {
+    pub(crate) fn sender() -> Result<RunLoopSender> {
         RUN_LOOP_SENDER
             .lock()
             .unwrap()
@@ -714,8 +662,8 @@ impl RunLoopLocal {
         future.await
     }
 
-    /// Returns a sender object that allows other threads to execute callbacks on this run loop.
-    /// Unlike `RunLoop`, the sender implements `Send` and `Sync`.
+    // Internal sender for run-loop-owned tasks and wakers. Public cross-thread
+    // callers go through `RunLoop::post` or `RunLoop::call`.
     pub(crate) fn new_sender(&self) -> RunLoopSender {
         RunLoopSender::new(
             self.run_loop.inner.platform_run_loop.new_sender(),
@@ -1080,7 +1028,7 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_loop.block_on(async {
                 let inner_result = run_loop.block_on(async { "inner" });
-                format!("outer: {}", inner_result)
+                format!("outer: {inner_result}")
             });
         }));
 

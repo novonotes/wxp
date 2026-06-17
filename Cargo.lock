@@ -2927,6 +2927,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
+name = "run_loop_test_utils"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "novonotes_run_loop",
+ "serial_test",
+]
+
+[[package]]
 name = "run_loop_timer"
 version = "0.1.0"
 dependencies = [
@@ -4786,6 +4795,7 @@ dependencies = [
  "novonotes_run_loop",
  "once_cell",
  "parking_lot",
+ "run_loop_test_utils",
  "send_wrapper",
  "serde",
  "serde_json",

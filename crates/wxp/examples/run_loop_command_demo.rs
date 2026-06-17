@@ -7,8 +7,8 @@
 use host_window::{HostWindowHandle, create_window};
 use novonotes_run_loop::RunLoop;
 use serde_json::json;
+use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::time::Duration;
 use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize};
@@ -76,7 +76,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
 
     // Variable to hold resources
-    let resources = Arc::new(parking_lot::Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_for_schedule = resources.clone();
 
     // The WebView is thread-affine and must be built on the run loop thread.
@@ -114,7 +114,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         window.show();
 
         // Save resources
-        *resources_for_schedule.lock() = Some(Resources {
+        *resources_for_schedule.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });

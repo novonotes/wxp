@@ -6,7 +6,7 @@ use std::{
     os::raw::c_uint,
     rc::Rc,
     sync::{
-        Once,
+        Arc, Mutex, Once,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
@@ -45,6 +45,16 @@ pub(crate) struct PlatformRunLoop {
     main_loop: *mut GMainLoop,
     next_handle: Cell<HandleType>,
     timers: Rc<RefCell<HashMap<HandleType, SourceId>>>,
+    sender_queue: Arc<Mutex<SenderQueue>>,
+    is_shutdown: Cell<bool>,
+}
+
+type SenderCallback = Box<dyn FnOnce() + Send>;
+
+struct SenderQueue {
+    callbacks: Vec<SenderCallback>,
+    source_ids: Vec<SourceId>,
+    is_shutdown: bool,
 }
 
 // Attach a Rust closure to a GLib timeout source. GLib only takes a C function
@@ -81,33 +91,6 @@ where
 
         g_source_unref(source);
         id
-    }
-}
-
-fn context_invoke<F>(context: *mut GMainContext, func: F)
-where
-    F: FnOnce() + 'static,
-{
-    unsafe extern "C" fn trampoline<F: FnOnce() + 'static>(func: gpointer) -> gboolean {
-        let func: &mut Option<F> = unsafe { &mut *(func as *mut Option<F>) };
-        let func = func
-            .take()
-            .expect("MainContext::invoke() closure called multiple times");
-        func();
-        G_SOURCE_REMOVE
-    }
-    unsafe extern "C" fn destroy_closure<F: FnOnce() + 'static>(ptr: gpointer) {
-        let _ = unsafe { Box::<Option<F>>::from_raw(ptr as *mut _) };
-    }
-    let callback = Box::into_raw(Box::new(Some(func)));
-    unsafe {
-        g_main_context_invoke_full(
-            context,
-            0,
-            Some(trampoline::<F>),
-            callback as gpointer,
-            Some(destroy_closure::<F>),
-        )
     }
 }
 
@@ -200,11 +183,21 @@ impl PlatformRunLoop {
             context,
             next_handle: Cell::new(INVALID_HANDLE + 1),
             timers: Rc::new(RefCell::new(HashMap::new())),
+            sender_queue: Arc::new(Mutex::new(SenderQueue {
+                callbacks: Vec::new(),
+                source_ids: Vec::new(),
+                is_shutdown: false,
+            })),
+            is_shutdown: Cell::new(false),
             main_loop,
         }
     }
 
     pub(crate) fn unschedule(&self, handle: HandleType) {
+        if self.is_shutdown.get() {
+            return;
+        }
+
         let source = self.timers.borrow_mut().remove(&handle);
         if let Some(source) = source {
             context_remove_source(self.context.0, source);
@@ -222,6 +215,10 @@ impl PlatformRunLoop {
     where
         F: FnOnce() + 'static,
     {
+        if self.is_shutdown.get() {
+            return INVALID_HANDLE;
+        }
+
         let callback = Rc::new(RefCell::new(Some(callback)));
         let handle = self.next_handle();
 
@@ -245,6 +242,37 @@ impl PlatformRunLoop {
     }
 
     pub(crate) fn stop(&self) {
+        unsafe { g_main_loop_quit(self.main_loop) };
+    }
+
+    pub(crate) fn shutdown(&self) {
+        if self.is_shutdown.replace(true) {
+            return;
+        }
+
+        let timer_source_ids: Vec<SourceId> = self
+            .timers
+            .borrow_mut()
+            .drain()
+            .map(|(_, source_id)| source_id)
+            .collect();
+        for source_id in timer_source_ids {
+            context_remove_source(self.context.0, source_id);
+        }
+
+        let (source_ids, callbacks) = {
+            let mut sender_queue = self.sender_queue.lock().unwrap();
+            sender_queue.is_shutdown = true;
+            (
+                std::mem::take(&mut sender_queue.source_ids),
+                std::mem::take(&mut sender_queue.callbacks),
+            )
+        };
+        for source_id in source_ids {
+            context_remove_source(self.context.0, source_id);
+        }
+        drop(callbacks);
+
         unsafe { g_main_loop_quit(self.main_loop) };
     }
 
@@ -272,12 +300,13 @@ impl PlatformRunLoop {
     }
 
     pub(crate) fn new_sender(self: &Rc<Self>) -> PlatformRunLoopSender {
-        PlatformRunLoopSender::new(self.context.clone())
+        PlatformRunLoopSender::new(self.context.clone(), Arc::downgrade(&self.sender_queue))
     }
 }
 
 impl Drop for PlatformRunLoop {
     fn drop(&mut self) {
+        self.shutdown();
         unsafe {
             g_main_context_pop_thread_default(self.context.0);
             g_main_loop_unref(self.main_loop);
@@ -323,59 +352,58 @@ impl Drop for ContextHolder {
 #[derive(Clone)]
 pub(crate) struct PlatformRunLoopSender {
     context: ContextHolder,
-    thread_id: PlatformThreadId,
+    queue: std::sync::Weak<Mutex<SenderQueue>>,
 }
 
 #[allow(unused_variables)]
 impl PlatformRunLoopSender {
-    fn new(context: ContextHolder) -> Self {
-        Self {
-            context,
-            thread_id: get_system_thread_id(),
-        }
+    fn new(context: ContextHolder, queue: std::sync::Weak<Mutex<SenderQueue>>) -> Self {
+        Self { context, queue }
     }
 
     pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {
-        // This is to ensure consistent behavior on all platforms. When invoked on main thread
-        // the code below (g_main_context_invoke_full) would call the function synchronously,
-        // which is not expected and may lead to deadlocks.
-        if get_system_thread_id() == self.thread_id {
-            assert!(unsafe { g_main_context_is_owner(self.context.0) == GTRUE });
-            // Schedule directly via g_timeout_source without entering the RunLoop facade.
-            unsafe {
-                unsafe extern "C" fn sender_trampoline<F: FnOnce() + 'static>(
-                    func: gpointer,
-                ) -> gboolean {
-                    let func: &mut Option<F> = unsafe { &mut *(func as *mut Option<F>) };
-                    if let Some(f) = func.take() {
-                        f();
-                    }
-                    G_SOURCE_REMOVE
-                }
-                unsafe extern "C" fn sender_destroy<F: FnOnce() + 'static>(ptr: gpointer) {
-                    let _ = unsafe { Box::<Option<F>>::from_raw(ptr as *mut _) };
-                }
-
-                let source = g_timeout_source_new(0);
-                let callback = Box::into_raw(Box::new(Some(callback)));
-                g_source_set_callback(
-                    source,
-                    Some(sender_trampoline::<F>),
-                    callback as gpointer,
-                    Some(sender_destroy::<F>),
-                );
-                g_source_attach(source, self.context.0);
-                g_source_unref(source);
+        let Some(queue) = self.queue.upgrade() else {
+            return false;
+        };
+        {
+            let mut queue = queue.lock().unwrap();
+            if queue.is_shutdown {
+                return false;
             }
-            return true;
+            queue.callbacks.push(Box::new(callback));
         }
 
-        context_invoke(self.context.0, callback);
+        let queue_for_callback = Arc::downgrade(&queue);
+        let source_id = context_add_source(self.context.0, Duration::ZERO, move || {
+            let Some(queue) = queue_for_callback.upgrade() else {
+                return G_SOURCE_REMOVE;
+            };
+            let callbacks = {
+                let mut queue = queue.lock().unwrap();
+                if queue.is_shutdown {
+                    queue.callbacks.clear();
+                    Vec::new()
+                } else {
+                    queue.callbacks.drain(..).collect()
+                }
+            };
+            for callback in callbacks {
+                callback();
+            }
+            G_SOURCE_REMOVE
+        });
 
-        true
+        let mut queue = queue.lock().unwrap();
+        if queue.is_shutdown {
+            context_remove_source(self.context.0, source_id);
+            false
+        } else {
+            queue.source_ids.push(source_id);
+            true
+        }
     }
 }
 

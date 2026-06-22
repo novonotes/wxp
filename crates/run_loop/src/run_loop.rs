@@ -425,22 +425,28 @@ impl RunLoop {
                 }
             }
 
+            // Drop queued callbacks and unregister native wake/timer sources
+            // before the final guard returns. Plugin hosts may unload the DSO
+            // immediately after deinit, so leaving an OS callback that points
+            // into this library would be unsafe even if the callback later
+            // checked `has_shutdown`.
+            instance.platform_run_loop.shutdown();
+
             // Abort all active tasks.
             // Catch any panics during abort to prevent crashes.
             // In audio plugins, not crashing the DAW host is the top priority.
             // This is a safety net; ideally no panic should occur here.
             if let Ok(tasks) = instance.active_tasks.lock() {
                 for weak_task in tasks.iter() {
-                    if let Some(task) = weak_task.upgrade() {
-                        if let Err(e) =
+                    if let Some(task) = weak_task.upgrade()
+                        && let Err(e) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 task.abort();
                             }))
-                        {
-                            log::error!(
-                                "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
-                            );
-                        }
+                    {
+                        log::error!(
+                            "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
+                        );
                     }
                 }
             }
@@ -636,19 +642,30 @@ impl RunLoopLocal {
     where
         F: FnOnce(&RunLoopLocal) + 'static,
     {
-        let inner_for_callback = self.run_loop.inner.clone();
+        if self.run_loop.inner.has_shutdown.load(Ordering::SeqCst) {
+            return Handle::empty();
+        }
+
+        let inner_for_callback = Arc::downgrade(&self.run_loop.inner);
         let handle = self
             .run_loop
             .inner
             .platform_run_loop
             .schedule(in_time, move || {
-                callback(&RunLoopLocal::new(RunLoop {
-                    inner: inner_for_callback,
-                }));
+                let Some(inner) = inner_for_callback.upgrade() else {
+                    return;
+                };
+                if inner.has_shutdown.load(Ordering::SeqCst) {
+                    return;
+                }
+                callback(&RunLoopLocal::new(RunLoop { inner }));
             });
-        let inner_clone = self.run_loop.inner.clone();
+        let inner_clone = Arc::downgrade(&self.run_loop.inner);
         Handle::new(move || {
-            inner_clone.platform_run_loop.unschedule(handle);
+            let Some(inner) = inner_clone.upgrade() else {
+                return;
+            };
+            inner.platform_run_loop.unschedule(handle);
         })
     }
 
@@ -902,6 +919,36 @@ mod tests {
         drop(guard);
 
         assert!(matches!(handle.join().unwrap(), Err(Error::NotInitialized)));
+    }
+
+    #[test]
+    #[serial]
+    fn test_shutdown_drops_detached_scheduled_callback() {
+        struct DropProbe(Arc<AtomicBool>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
+        let inner = Arc::downgrade(&run_loop.run_loop.inner);
+        let callback_dropped = Arc::new(AtomicBool::new(false));
+        let probe = DropProbe(callback_dropped.clone());
+
+        run_loop
+            .schedule(Duration::from_secs(60 * 60), move |_| {
+                let _probe = probe;
+                panic!("scheduled callback must not run during shutdown");
+            })
+            .detach();
+
+        drop(guard);
+
+        assert!(callback_dropped.load(Ordering::SeqCst));
+        assert!(inner.upgrade().is_none());
     }
 
     #[test]

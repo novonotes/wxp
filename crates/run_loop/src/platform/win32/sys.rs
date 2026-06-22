@@ -146,6 +146,7 @@ pub(crate) mod windows {
             wmsgfiltermax: u32,
         ) -> BOOL;
         pub(crate) fn PostMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> BOOL;
+        pub(crate) fn KillTimer(hwnd: HWND, uidevent: usize) -> BOOL;
         pub(crate) fn SetTimer(
             hwnd: HWND,
             nidevent: usize,

@@ -43,6 +43,7 @@ struct State {
     source: Option<CFRunLoopSource>,
     run_loop: CFRunLoopRef,
     run_loop_mode: Id<NSString>,
+    is_shutdown: bool,
 }
 
 // SAFETY: `State` is always accessed behind its `Mutex`, and the Core
@@ -77,6 +78,7 @@ impl State {
             source: None,
             run_loop_mode: NSString::from_str(&run_loop_mode),
             run_loop,
+            is_shutdown: false,
         }
     }
 
@@ -178,6 +180,10 @@ impl State {
     }
 
     fn schedule(&mut self, state: Arc<Mutex<State>>) {
+        if self.is_shutdown {
+            return;
+        }
+
         self.remove_timer();
 
         if !self.callbacks.is_empty() {
@@ -278,6 +284,18 @@ impl State {
             state.lock().unwrap().schedule(state_clone);
         }
     }
+
+    fn cancel_all(&mut self) -> (Vec<Callback>, Vec<Timer>) {
+        // `cancel_all` is the point of no return for this platform loop. Mark it
+        // first so any Handle dropped while callbacks are being released cannot
+        // re-arm a CFRunLoopTimer through `unschedule`.
+        self.is_shutdown = true;
+        self.remove_source();
+        self.remove_timer();
+        let callbacks = std::mem::take(&mut self.callbacks);
+        let timers = self.timers.drain().map(|(_, timer)| timer).collect();
+        (callbacks, timers)
+    }
 }
 
 impl Drop for State {
@@ -296,9 +314,7 @@ pub(crate) struct PlatformRunLoop {
 
 impl Drop for PlatformRunLoop {
     fn drop(&mut self) {
-        // This needs to be done to unref State
-        self.state.lock().unwrap().remove_source();
-        self.state.lock().unwrap().remove_timer();
+        self.shutdown();
     }
 }
 
@@ -338,6 +354,9 @@ impl PlatformRunLoop {
     pub(crate) fn unschedule(&self, handle: HandleType) {
         let state_clone = self.state.clone();
         let mut state = self.state.lock().unwrap();
+        if state.is_shutdown {
+            return;
+        }
         state.timers.remove(&handle);
         state.schedule(state_clone);
     }
@@ -350,6 +369,9 @@ impl PlatformRunLoop {
 
         let state_clone = self.state.clone();
         let mut state = self.state.lock().unwrap();
+        if state.is_shutdown {
+            return INVALID_HANDLE;
+        }
 
         state.timers.insert(
             handle,
@@ -362,6 +384,24 @@ impl PlatformRunLoop {
         state.schedule(state_clone);
 
         handle
+    }
+
+    pub(crate) fn shutdown(&self) {
+        self.running.set(false);
+        let (pending, run_loop) = {
+            let mut state = self.state.lock().unwrap();
+            // Retain the CFRunLoop while sources are removed. Removing the source
+            // can drop the last CF-held Arc<State>, but we still need a stable
+            // run-loop reference to wake/stop it below.
+            let run_loop: CFRunLoopRef = unsafe { CFRetain(state.run_loop as *mut _) } as *mut _;
+            (state.cancel_all(), run_loop)
+        };
+        unsafe {
+            CFRunLoopStop(run_loop);
+            CFRunLoopWakeUp(run_loop);
+            CFRelease(run_loop as *mut _);
+        }
+        drop(pending);
     }
 
     pub(crate) fn run(&self) {
@@ -453,6 +493,9 @@ impl PlatformRunLoopSender {
         if let Some(state) = self.state.upgrade() {
             let state_clone = state.clone();
             let mut state = state.lock().unwrap();
+            if state.is_shutdown {
+                return false;
+            }
             state.callbacks.push(Box::new(callback));
             state.schedule(state_clone);
             true

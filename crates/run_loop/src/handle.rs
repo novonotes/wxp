@@ -11,7 +11,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub(crate) fn empty() -> Self {
+    pub(crate) fn inactive() -> Self {
         Self { on_cancel: None }
     }
 

@@ -385,10 +385,12 @@ impl PlatformRunLoop {
 
     pub(crate) fn shutdown(&self) {
         self.running.set(false);
-        let pending = self.state.lock().unwrap().cancel_all();
+        let (pending, run_loop) = {
+            let mut state = self.state.lock().unwrap();
+            let run_loop: CFRunLoopRef = unsafe { CFRetain(state.run_loop as *mut _) } as *mut _;
+            (state.cancel_all(), run_loop)
+        };
         unsafe {
-            let run_loop: CFRunLoopRef =
-                CFRetain(self.state.lock().unwrap().run_loop as *mut _) as *mut _;
             CFRunLoopStop(run_loop);
             CFRunLoopWakeUp(run_loop);
             CFRelease(run_loop as *mut _);

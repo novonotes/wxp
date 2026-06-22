@@ -643,7 +643,7 @@ impl RunLoopLocal {
         F: FnOnce(&RunLoopLocal) + 'static,
     {
         if self.run_loop.inner.has_shutdown.load(Ordering::SeqCst) {
-            return Handle::empty();
+            return Handle::inactive();
         }
 
         let inner_for_callback = Arc::downgrade(&self.run_loop.inner);

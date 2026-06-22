@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc, Mutex, Once,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -45,14 +45,11 @@ pub(crate) struct PlatformRunLoop {
     main_loop: *mut GMainLoop,
     next_handle: Cell<HandleType>,
     timers: Rc<RefCell<HashMap<HandleType, SourceId>>>,
-    sender_queue: Arc<Mutex<SenderQueue>>,
+    sender_state: Arc<Mutex<SenderState>>,
     is_shutdown: Cell<bool>,
 }
 
-type SenderCallback = Box<dyn FnOnce() + Send>;
-
-struct SenderQueue {
-    callbacks: Vec<SenderCallback>,
+struct SenderState {
     source_ids: Vec<SourceId>,
     is_shutdown: bool,
 }
@@ -183,8 +180,7 @@ impl PlatformRunLoop {
             context,
             next_handle: Cell::new(INVALID_HANDLE + 1),
             timers: Rc::new(RefCell::new(HashMap::new())),
-            sender_queue: Arc::new(Mutex::new(SenderQueue {
-                callbacks: Vec::new(),
+            sender_state: Arc::new(Mutex::new(SenderState {
                 source_ids: Vec::new(),
                 is_shutdown: false,
             })),
@@ -260,18 +256,14 @@ impl PlatformRunLoop {
             context_remove_source(self.context.0, source_id);
         }
 
-        let (source_ids, callbacks) = {
-            let mut sender_queue = self.sender_queue.lock().unwrap();
-            sender_queue.is_shutdown = true;
-            (
-                std::mem::take(&mut sender_queue.source_ids),
-                std::mem::take(&mut sender_queue.callbacks),
-            )
+        let source_ids = {
+            let mut sender_state = self.sender_state.lock().unwrap();
+            sender_state.is_shutdown = true;
+            std::mem::take(&mut sender_state.source_ids)
         };
         for source_id in source_ids {
             context_remove_source(self.context.0, source_id);
         }
-        drop(callbacks);
 
         unsafe { g_main_loop_quit(self.main_loop) };
     }
@@ -300,7 +292,7 @@ impl PlatformRunLoop {
     }
 
     pub(crate) fn new_sender(self: &Rc<Self>) -> PlatformRunLoopSender {
-        PlatformRunLoopSender::new(self.context.clone(), Arc::downgrade(&self.sender_queue))
+        PlatformRunLoopSender::new(self.context.clone(), Arc::downgrade(&self.sender_state))
     }
 }
 
@@ -352,56 +344,68 @@ impl Drop for ContextHolder {
 #[derive(Clone)]
 pub(crate) struct PlatformRunLoopSender {
     context: ContextHolder,
-    queue: std::sync::Weak<Mutex<SenderQueue>>,
+    state: std::sync::Weak<Mutex<SenderState>>,
 }
 
-#[allow(unused_variables)]
 impl PlatformRunLoopSender {
-    fn new(context: ContextHolder, queue: std::sync::Weak<Mutex<SenderQueue>>) -> Self {
-        Self { context, queue }
+    fn new(context: ContextHolder, state: std::sync::Weak<Mutex<SenderState>>) -> Self {
+        Self { context, state }
     }
 
     pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {
-        let Some(queue) = self.queue.upgrade() else {
+        let Some(state) = self.state.upgrade() else {
             return false;
         };
         {
-            let mut queue = queue.lock().unwrap();
-            if queue.is_shutdown {
+            let state = state.lock().unwrap();
+            if state.is_shutdown {
                 return false;
             }
-            queue.callbacks.push(Box::new(callback));
         }
 
-        let queue_for_callback = Arc::downgrade(&queue);
+        // Track the GLib source itself instead of only checking a shutdown flag.
+        // On plugin unload the source must be destroyed synchronously so GLib
+        // drops the boxed Rust callback before the DSO can disappear.
+        let state_for_callback = Arc::downgrade(&state);
+        let source_id_for_callback = Arc::new(AtomicUsize::new(INVALID_HANDLE));
+        let source_id_after_attach = source_id_for_callback.clone();
+        let callback_finished = Arc::new(AtomicBool::new(false));
+        let callback_finished_after_attach = callback_finished.clone();
+        let mut callback = Some(callback);
         let source_id = context_add_source(self.context.0, Duration::ZERO, move || {
-            let Some(queue) = queue_for_callback.upgrade() else {
+            callback_finished.store(true, Ordering::Release);
+
+            let Some(state) = state_for_callback.upgrade() else {
                 return G_SOURCE_REMOVE;
             };
-            let callbacks = {
-                let mut queue = queue.lock().unwrap();
-                if queue.is_shutdown {
-                    queue.callbacks.clear();
-                    Vec::new()
-                } else {
-                    queue.callbacks.drain(..).collect()
+            let source_id = source_id_for_callback.load(Ordering::Acquire) as SourceId;
+            {
+                let mut state = state.lock().unwrap();
+                state.source_ids.retain(|id| *id != source_id);
+                if state.is_shutdown {
+                    return G_SOURCE_REMOVE;
                 }
-            };
-            for callback in callbacks {
-                callback();
             }
+
+            let callback = callback
+                .take()
+                .expect("Sender callback was called multiple times");
+            callback();
             G_SOURCE_REMOVE
         });
+        source_id_after_attach.store(source_id as usize, Ordering::Release);
 
-        let mut queue = queue.lock().unwrap();
-        if queue.is_shutdown {
+        let mut state = state.lock().unwrap();
+        if state.is_shutdown {
             context_remove_source(self.context.0, source_id);
             false
         } else {
-            queue.source_ids.push(source_id);
+            if !callback_finished_after_attach.load(Ordering::Acquire) {
+                state.source_ids.push(source_id);
+            }
             true
         }
     }

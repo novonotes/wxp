@@ -366,11 +366,9 @@ impl PlatformRunLoopSender {
         let Some(state) = self.state.upgrade() else {
             return false;
         };
-        {
-            let state = state.lock().unwrap();
-            if state.is_shutdown {
-                return false;
-            }
+        let mut state_guard = state.lock().unwrap();
+        if state_guard.is_shutdown {
+            return false;
         }
 
         // Track the GLib source itself instead of only checking a shutdown flag.
@@ -405,18 +403,10 @@ impl PlatformRunLoopSender {
         });
         source_id_after_attach.store(source_id as usize, Ordering::Release);
 
-        let mut state = state.lock().unwrap();
-        if state.is_shutdown {
-            // Shutdown may have started between `g_source_attach` and recording
-            // the source id. Destroy it here so no untracked GLib source survives.
-            context_remove_source(self.context.0, source_id);
-            false
-        } else {
-            if !callback_finished_after_attach.load(Ordering::Acquire) {
-                state.source_ids.push(source_id);
-            }
-            true
+        if !callback_finished_after_attach.load(Ordering::Acquire) {
+            state_guard.source_ids.push(source_id);
         }
+        true
     }
 }
 

@@ -77,6 +77,11 @@ struct Timer {
 
 type SenderCallback = Box<dyn FnOnce() + Send>;
 
+struct SenderState {
+    callbacks: Vec<SenderCallback>,
+    is_shutdown: bool,
+}
+
 // Private stop message. Posting one (instead of just setting a flag) guarantees
 // the blocking `GetMessageW` wakes so the loop can observe the stop request.
 const WM_RUNLOOP_STOP: u32 = WM_USER + 1;
@@ -87,8 +92,8 @@ struct State {
     timers: RefCell<HashMap<HandleType, Timer>>,
     is_shutdown: Cell<bool>,
 
-    // Callbacks sent from other threads
-    sender_callbacks: Arc<Mutex<Vec<SenderCallback>>>,
+    // Callbacks sent from other threads.
+    sender_state: Arc<Mutex<SenderState>>,
 
     // Indicate that stop has been called
     stopping: Cell<bool>,
@@ -119,7 +124,10 @@ impl State {
             hwnd: Cell::new(0),
             timers: RefCell::new(HashMap::new()),
             is_shutdown: Cell::new(false),
-            sender_callbacks: Arc::new(Mutex::new(Vec::new())),
+            sender_state: Arc::new(Mutex::new(SenderState {
+                callbacks: Vec::new(),
+                is_shutdown: false,
+            })),
             stopping: Cell::new(false),
         }
     }
@@ -220,8 +228,8 @@ impl State {
 
     fn process_callbacks(&self) {
         let callbacks: Vec<SenderCallback> = {
-            let mut callbacks = self.sender_callbacks.lock().unwrap();
-            callbacks.drain(0..).collect()
+            let mut state = self.sender_state.lock().unwrap();
+            state.callbacks.drain(0..).collect()
         };
         for c in callbacks {
             c()
@@ -231,7 +239,7 @@ impl State {
     fn new_sender(&self) -> PlatformRunLoopSender {
         PlatformRunLoopSender {
             hwnd: self.hwnd.get(),
-            callbacks: Arc::downgrade(&self.sender_callbacks),
+            state: Arc::downgrade(&self.sender_state),
         }
     }
 
@@ -304,9 +312,12 @@ impl State {
         // the hidden window must not retain callbacks into this DSO.
         let timers = std::mem::take(&mut *self.timers.borrow_mut());
         let callbacks = self
-            .sender_callbacks
+            .sender_state
             .lock()
-            .map(|mut callbacks| std::mem::take(&mut *callbacks))
+            .map(|mut state| {
+                state.is_shutdown = true;
+                std::mem::take(&mut state.callbacks)
+            })
             .unwrap_or_default();
         unsafe {
             KillTimer(self.hwnd.get(), 1);
@@ -344,7 +355,7 @@ impl WindowAdapter for State {
 #[derive(Clone)]
 pub(crate) struct PlatformRunLoopSender {
     hwnd: HWND,
-    callbacks: std::sync::Weak<Mutex<Vec<SenderCallback>>>,
+    state: std::sync::Weak<Mutex<SenderState>>,
 }
 
 #[allow(unused_variables)]
@@ -353,10 +364,13 @@ impl PlatformRunLoopSender {
     where
         F: FnOnce() + 'static + Send,
     {
-        if let Some(callbacks) = self.callbacks.upgrade() {
+        if let Some(state) = self.state.upgrade() {
             {
-                let mut callbacks = callbacks.lock().unwrap();
-                callbacks.push(Box::new(callback));
+                let mut state = state.lock().unwrap();
+                if state.is_shutdown {
+                    return false;
+                }
+                state.callbacks.push(Box::new(callback));
             }
             unsafe {
                 PostMessageW(self.hwnd, WM_USER, 0, 0);

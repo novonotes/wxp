@@ -493,6 +493,9 @@ impl PlatformRunLoopSender {
         if let Some(state) = self.state.upgrade() {
             let state_clone = state.clone();
             let mut state = state.lock().unwrap();
+            if state.is_shutdown {
+                return false;
+            }
             state.callbacks.push(Box::new(callback));
             state.schedule(state_clone);
             true

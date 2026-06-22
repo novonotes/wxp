@@ -299,6 +299,9 @@ impl State {
         }
 
         self.stopping.set(true);
+        // Drop pending Rust callbacks after disarming the HWND timer/window.
+        // Hosts can unload the plugin immediately after RunLoopGuard drops, so
+        // the hidden window must not retain callbacks into this DSO.
         let timers = std::mem::take(&mut *self.timers.borrow_mut());
         let callbacks = self
             .sender_callbacks

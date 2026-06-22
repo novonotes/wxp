@@ -286,6 +286,9 @@ impl State {
     }
 
     fn cancel_all(&mut self) -> (Vec<Callback>, Vec<Timer>) {
+        // `cancel_all` is the point of no return for this platform loop. Mark it
+        // first so any Handle dropped while callbacks are being released cannot
+        // re-arm a CFRunLoopTimer through `unschedule`.
         self.is_shutdown = true;
         self.remove_source();
         self.remove_timer();
@@ -387,6 +390,9 @@ impl PlatformRunLoop {
         self.running.set(false);
         let (pending, run_loop) = {
             let mut state = self.state.lock().unwrap();
+            // Retain the CFRunLoop while sources are removed. Removing the source
+            // can drop the last CF-held Arc<State>, but we still need a stable
+            // run-loop reference to wake/stop it below.
             let run_loop: CFRunLoopRef = unsafe { CFRetain(state.run_loop as *mut _) } as *mut _;
             (state.cancel_all(), run_loop)
         };

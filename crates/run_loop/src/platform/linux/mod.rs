@@ -50,6 +50,9 @@ pub(crate) struct PlatformRunLoop {
 }
 
 struct SenderState {
+    // Cross-thread sends are represented by GLib sources, not just a Rust-side
+    // queue, because shutdown must destroy the native source and force GLib to
+    // run the closure destructor before the plugin DSO can be unloaded.
     source_ids: Vec<SourceId>,
     is_shutdown: bool,
 }
@@ -246,6 +249,8 @@ impl PlatformRunLoop {
             return;
         }
 
+        // Destroying a GLib source synchronously calls its destroy notifier,
+        // which drops the boxed Rust callback while this library is still loaded.
         let timer_source_ids: Vec<SourceId> = self
             .timers
             .borrow_mut()
@@ -258,6 +263,8 @@ impl PlatformRunLoop {
 
         let source_ids = {
             let mut sender_state = self.sender_state.lock().unwrap();
+            // Block new sends before taking the source ids. A racing sender that
+            // observes this flag will destroy its just-created source itself.
             sender_state.is_shutdown = true;
             std::mem::take(&mut sender_state.source_ids)
         };
@@ -400,6 +407,8 @@ impl PlatformRunLoopSender {
 
         let mut state = state.lock().unwrap();
         if state.is_shutdown {
+            // Shutdown may have started between `g_source_attach` and recording
+            // the source id. Destroy it here so no untracked GLib source survives.
             context_remove_source(self.context.0, source_id);
             false
         } else {

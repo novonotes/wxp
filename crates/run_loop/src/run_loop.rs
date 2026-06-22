@@ -205,7 +205,9 @@ impl Drop for RunLoopInner {
             }
         }
 
-        // Platform-specific cleanup is handled automatically by each platform's Drop impl.
+        // Platform Drop still calls shutdown as a fallback, but normal cleanup
+        // must already have happened in RunLoop::shutdown() before this Arc is
+        // released. Do not move DSO-unload-sensitive cleanup back here.
     }
 }
 
@@ -427,9 +429,8 @@ impl RunLoop {
 
             // Drop queued callbacks and unregister native wake/timer sources
             // before the final guard returns. Plugin hosts may unload the DSO
-            // immediately after deinit, so leaving an OS callback that points
-            // into this library would be unsafe even if the callback later
-            // checked `has_shutdown`.
+            // immediately after deinit, so no native callback may remain armed
+            // even if it would check `has_shutdown` before running Rust code.
             instance.platform_run_loop.shutdown();
 
             // Abort all active tasks.
@@ -456,7 +457,9 @@ impl RunLoop {
                 tasks.clear();
             }
 
-            // Platform-specific cleanup is handled automatically by each platform's Drop impl.
+            // Platform resources also call shutdown from Drop, but the explicit
+            // call above is the shutdown contract: after the last guard is
+            // dropped, hosts may unload this DSO immediately.
         }
 
         // Clear the run loop thread ID so a new thread can be set by the next init()
@@ -646,6 +649,9 @@ impl RunLoopLocal {
             return Handle::inactive();
         }
 
+        // Detached handles may outlive the final RunLoopGuard. Capturing only a
+        // Weak keeps a scheduled callback from extending RunLoopInner past the
+        // point where shutdown has unregistered the platform callback.
         let inner_for_callback = Arc::downgrade(&self.run_loop.inner);
         let handle = self
             .run_loop
@@ -660,6 +666,8 @@ impl RunLoopLocal {
                 }
                 callback(&RunLoopLocal::new(RunLoop { inner }));
             });
+        // Cancellation after shutdown must be a no-op rather than recreating
+        // platform timers while the final guard is being torn down.
         let inner_clone = Arc::downgrade(&self.run_loop.inner);
         Handle::new(move || {
             let Some(inner) = inner_clone.upgrade() else {

@@ -239,6 +239,9 @@ impl PlatformRunLoop {
         }
 
         self.running.set(false);
+        // Remove the fds from ALooper before dropping queued Rust callbacks.
+        // Otherwise a host could unload the DSO while Android still has a native
+        // readiness callback path back into this library.
         unsafe {
             ALooper_removeFd(self.looper, self.pipes[0]);
             ALooper_removeFd(self.looper, self.state.timer_fd);
@@ -343,6 +346,8 @@ impl State {
 
     fn cancel_all(&self) {
         let timers = std::mem::take(&mut *self.timers.borrow_mut());
+        // Disarm timerfd even though the fd is closed later in Drop: shutdown is
+        // the synchronous boundary after which no native timer event may fire.
         let spec = itimerspec {
             it_interval: timespec {
                 tv_sec: 0,

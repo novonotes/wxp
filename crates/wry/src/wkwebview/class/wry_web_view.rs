@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 #[cfg(target_os = "macos")]
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, rc::Retained, runtime::Bool, DeclaredClass};
+use objc2::{define_class, msg_send, rc::Retained, runtime::Bool, DeclaredClass};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSDraggingDestination, NSEvent};
 use objc2_foundation::{NSObjectProtocol, NSUUID};
@@ -29,6 +29,8 @@ pub struct WryWebViewIvars {
   pub(crate) drag_drop_handler: Box<dyn Fn(DragDropEvent) -> bool>,
   #[cfg(target_os = "macos")]
   pub(crate) accept_first_mouse: objc2::runtime::Bool,
+  #[cfg(target_os = "macos")]
+  pub(crate) keyboard_event_routes: Mutex<Vec<(u16, crate::KeyboardEventDestination)>>,
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
@@ -53,6 +55,26 @@ define_class!(
       } else {
         unsafe { objc2::msg_send![super(self), performKeyEquivalent: event] }
       }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(keyDown:))]
+    fn key_down(&self, event: &NSEvent) {
+      if crate::wkwebview::keyboard_routing::handle_key_event(self, event, objc2::sel!(keyDown:)) {
+        return;
+      }
+
+      unsafe { msg_send![super(self), keyDown: event] }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(keyUp:))]
+    fn key_up(&self, event: &NSEvent) {
+      if crate::wkwebview::keyboard_routing::handle_key_event(self, event, objc2::sel!(keyUp:)) {
+        return;
+      }
+
+      unsafe { msg_send![super(self), keyUp: event] }
     }
 
     #[cfg(target_os = "macos")]
@@ -123,6 +145,14 @@ define_class!(
 
 // Custom Protocol Task Checker
 impl WryWebView {
+  #[cfg(target_os = "macos")]
+  pub(crate) fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u16, crate::KeyboardEventDestination)>,
+  ) {
+    crate::wkwebview::keyboard_routing::set_routes(self, routes);
+  }
+
   pub(crate) fn add_custom_task_key(&self, task_id: usize) -> Retained<NSUUID> {
     let task_uuid = NSUUID::new();
     self

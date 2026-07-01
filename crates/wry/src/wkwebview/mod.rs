@@ -5,6 +5,8 @@
 mod download;
 #[cfg(target_os = "macos")]
 mod drag_drop;
+#[cfg(target_os = "macos")]
+mod keyboard_routing;
 mod navigation;
 #[cfg(feature = "mac-proxy")]
 mod proxy;
@@ -307,6 +309,8 @@ impl InnerWebView {
         },
         #[cfg(target_os = "macos")]
         accept_first_mouse: Bool::new(attributes.accept_first_mouse),
+        #[cfg(target_os = "macos")]
+        keyboard_event_routes: Default::default(),
         #[cfg(target_os = "ios")]
         input_accessory_view_builder: pl_attrs.input_accessory_view_builder,
         custom_protocol_task_ids: Default::default(),

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 mod drag_drop;
+mod keyboard_routing;
 mod util;
 
 use std::{
@@ -116,6 +117,8 @@ struct WebViewState {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
+  keyboard_event_routes: Rc<RefCell<Vec<(u32, crate::KeyboardEventDestination)>>>,
+  keyboard_routing_installed: bool,
 }
 
 enum PendingNavigation {
@@ -232,6 +235,8 @@ impl InnerWebView {
       pending_bounds: None,
       pending_navigation: None,
       drag_drop_controller: None,
+      keyboard_event_routes: Default::default(),
+      keyboard_routing_installed: false,
     }));
 
     Self::begin_create_environment(PendingWebViewCreation {
@@ -677,6 +682,12 @@ impl InnerWebView {
     if let Some(navigation) = pending_navigation {
       let _ = Self::apply_navigation(&env, &webview, navigation);
     }
+
+    let keyboard_event_routes = creation.state.borrow().keyboard_event_routes.clone();
+    unsafe {
+      keyboard_routing::install(creation.parent, creation.hwnd, keyboard_event_routes);
+    }
+    creation.state.borrow_mut().keyboard_routing_installed = true;
   }
 
   fn apply_bounds(
@@ -1710,6 +1721,30 @@ impl InnerWebView {
 
   pub fn webview(&self) -> Option<ICoreWebView2> {
     self.state.borrow().webview.clone()
+  }
+
+  pub fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u32, crate::KeyboardEventDestination)>,
+  ) -> Result<()> {
+    let should_install = {
+      let state = self.state.borrow_mut();
+      *state.keyboard_event_routes.borrow_mut() = routes;
+      state.webview.is_some() && !state.keyboard_routing_installed
+    };
+
+    if should_install {
+      unsafe {
+        keyboard_routing::install(
+          *self.parent.borrow(),
+          self.hwnd,
+          self.state.borrow().keyboard_event_routes.clone(),
+        );
+      }
+      self.state.borrow_mut().keyboard_routing_installed = true;
+    }
+
+    Ok(())
   }
 
   pub fn eval(

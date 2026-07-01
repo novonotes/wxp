@@ -42,6 +42,31 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .with_devtools(true)
     .build_as_child(&window)?;
 ```
+
+### Keyboard Routing
+
+Embedded plugin UIs sometimes need to let selected host shortcuts bypass the WebView while keeping
+other keys available to the frontend. Configure a routing policy on the builder:
+
+```rust
+use wxp::{WxpKeyboardDestination, WxpKeyboardKey, WxpKeyboardRouting};
+
+let routing = WxpKeyboardRouting::new()
+    .route(WxpKeyboardKey::Space, WxpKeyboardDestination::Parent);
+
+let webview = WxpWebViewBuilder::new(&mut web_context)
+    .with_keyboard_routing(routing)
+    .with_html(HTML_CONTENT)
+    .build_as_child(&window)?;
+```
+
+Common keys are mapped on supported platforms. Use `WxpKeyboardKey::native` when a host integration
+needs a platform-specific key code that is not covered by the common key list.
+`WxpKeyboardDestination::WebViewAndParent` forwards a matching key to the parent and still lets the
+WebView process it, so use it only when the duplicate action is intentional.
+Call `WxpWebView::set_keyboard_routing` or `WebViewDispatch::post_set_keyboard_routing` to switch
+policies while the WebView is running.
+
 ## Command
 
 An API similar to Tauri's `invoke` and `command`. Provides request/response communication from JavaScript to Rust.

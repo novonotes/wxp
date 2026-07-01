@@ -2217,6 +2217,17 @@ pub enum MemoryUsageLevel {
   Low,
 }
 
+/// Destination for native keyboard events intercepted before the WebView consumes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardEventDestination {
+  /// Let the WebView process the key normally.
+  WebView,
+  /// Forward the key to the parent window/view and stop WebView processing.
+  Parent,
+  /// Forward the key to the parent window/view and continue WebView processing.
+  WebViewAndParent,
+}
+
 /// Additional methods on `WebView` that are specific to Windows.
 #[cfg(target_os = "windows")]
 pub trait WebViewExtWindows {
@@ -2262,6 +2273,12 @@ pub trait WebViewExtWindows {
 
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND;
+
+  /// Routes matching key messages before WebView2 consumes them.
+  fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u32, KeyboardEventDestination)>,
+  ) -> Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -2293,6 +2310,13 @@ impl WebViewExtWindows for WebView {
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND {
     self.webview.hwnd()
+  }
+
+  fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u32, KeyboardEventDestination)>,
+  ) -> Result<()> {
+    self.webview.set_keyboard_event_routes(routes)
   }
 }
 
@@ -2394,6 +2418,12 @@ pub trait WebViewExtMacOS {
   /// Warning: Do not use this if your chosen window library does not support traffic light insets.
   /// Warning: Only use this in **decorated** windows with a **hidden titlebar**!
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()>;
+
+  /// Routes matching key events before WebKit consumes them.
+  fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u16, KeyboardEventDestination)>,
+  ) -> Result<()>;
 }
 
 #[cfg(target_os = "macos")]
@@ -2420,6 +2450,14 @@ impl WebViewExtMacOS for WebView {
 
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()> {
     self.webview.set_traffic_light_inset(position.into())
+  }
+
+  fn set_keyboard_event_routes(
+    &self,
+    routes: Vec<(u16, KeyboardEventDestination)>,
+  ) -> Result<()> {
+    self.webview.webview.set_keyboard_event_routes(routes);
+    Ok(())
   }
 }
 

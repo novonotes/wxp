@@ -12,6 +12,7 @@
 
 mod builder;
 mod initialization;
+mod keyboard;
 mod web_context;
 mod webview;
 mod wxp_channel;
@@ -23,6 +24,9 @@ mod wxp_webview;
 // --------------------------------------------------
 
 pub use builder::WxpWebViewBuilder;
+pub use keyboard::{
+    WxpKeyboardDestination, WxpKeyboardKey, WxpKeyboardRouting, WxpKeyboardRoutingRule,
+};
 pub use web_context::WebContext;
 pub use webview::{WebViewDispatch, WxpWebView};
 pub use wxp_channel::Channel;

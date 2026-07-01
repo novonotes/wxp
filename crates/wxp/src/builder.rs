@@ -1,4 +1,5 @@
 use crate::initialization::get_initialization_scripts;
+use crate::keyboard::{WxpKeyboardRouting, apply_keyboard_routing};
 use crate::web_context::WebContext;
 use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
@@ -50,6 +51,7 @@ use zip::result::ZipError;
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,
     command_handler: Option<Rc<WxpCommandHandler>>,
+    keyboard_routing: WxpKeyboardRouting,
 }
 
 impl<'a> WxpWebViewBuilder<'a> {
@@ -69,7 +71,17 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: None,
+            keyboard_routing: WxpKeyboardRouting::default(),
         }
+    }
+
+    /// Sets native keyboard routing policy for keys that should bypass the WebView.
+    ///
+    /// Plugin hosts commonly reserve a few global shortcuts while the WebView still needs normal
+    /// key input. Keeping this policy in native code lets the original key event reach the host.
+    pub fn with_keyboard_routing(mut self, routing: WxpKeyboardRouting) -> Self {
+        self.keyboard_routing = routing;
+        self
     }
 
     /// Serves the contents of a directory via a custom protocol.
@@ -290,6 +302,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -302,6 +315,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_url(url.into()),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -313,6 +327,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_html(html.into()),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -323,6 +338,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_devtools(devtools),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -334,6 +350,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_visible(visible),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -345,6 +362,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_bounds(bounds),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -367,6 +385,7 @@ impl<'a> WxpWebViewBuilder<'a> {
 
         let webview = builder.build_as_child(window)?;
         let webview = WxpWebView::new(webview)?;
+        apply_keyboard_routing(&webview, self.keyboard_routing)?;
         let dispatch = webview.dispatch();
 
         if let Some(handler) = self.command_handler {

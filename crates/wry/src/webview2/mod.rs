@@ -45,6 +45,7 @@ type EventRegistrationToken = i64;
 const PARENT_SUBCLASS_ID: u32 = WM_USER + 0x64;
 const PARENT_DESTROY_MESSAGE: u32 = WM_USER + 0x65;
 const MAIN_THREAD_DISPATCHER_SUBCLASS_ID: u32 = WM_USER + 0x66;
+const KEYBOARD_PASSTHROUGH_SUBCLASS_ID: u32 = WM_USER + 0x67;
 static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!("Wry::ExecMsg")) });
 static WINDOW_CLASS_NAME: OnceCell<HSTRING> = OnceCell::new();
 
@@ -116,6 +117,12 @@ struct WebViewState {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
+  parent_keyboard_passthrough_virtual_keys: Vec<u32>,
+}
+
+struct KeyboardPassthroughSubclassData {
+  parent: HWND,
+  virtual_keys: Vec<u32>,
 }
 
 enum PendingNavigation {
@@ -232,6 +239,7 @@ impl InnerWebView {
       pending_bounds: None,
       pending_navigation: None,
       drag_drop_controller: None,
+      parent_keyboard_passthrough_virtual_keys: Vec::new(),
     }));
 
     Self::begin_create_environment(PendingWebViewCreation {
@@ -676,6 +684,21 @@ impl InnerWebView {
 
     if let Some(navigation) = pending_navigation {
       let _ = Self::apply_navigation(&env, &webview, navigation);
+    }
+
+    let virtual_keys = creation
+      .state
+      .borrow()
+      .parent_keyboard_passthrough_virtual_keys
+      .clone();
+    if !virtual_keys.is_empty() {
+      unsafe {
+        Self::install_parent_keyboard_passthrough(
+          creation.parent,
+          creation.hwnd,
+          virtual_keys,
+        );
+      }
     }
   }
 
@@ -1523,6 +1546,86 @@ impl InnerWebView {
     );
   }
 
+  unsafe extern "system" fn keyboard_passthrough_subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _uidsubclass: usize,
+    dwrefdata: usize,
+  ) -> LRESULT {
+    match msg {
+      WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP => {
+        let data = &*(dwrefdata as *const KeyboardPassthroughSubclassData);
+        if data.virtual_keys.contains(&(wparam.0 as u32)) {
+          // Forward the original message while WebView2 still has the native event. Posting from
+          // JavaScript later cannot trigger plugin-host transport accelerators reliably.
+          return SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+        }
+      }
+
+      WM_NCDESTROY => {
+        if !(dwrefdata as *mut ()).is_null() {
+          drop(Box::from_raw(
+            dwrefdata as *mut KeyboardPassthroughSubclassData,
+          ));
+        }
+      }
+
+      _ => (),
+    }
+
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+  }
+
+  unsafe extern "system" fn enum_keyboard_passthrough_child_proc(
+    hwnd: HWND,
+    lparam: LPARAM,
+  ) -> BOOL {
+    let data = &*(lparam.0 as *const KeyboardPassthroughSubclassData);
+    Self::attach_keyboard_passthrough_subclass(hwnd, data.parent, data.virtual_keys.clone());
+    true.into()
+  }
+
+  unsafe fn attach_keyboard_passthrough_subclass(
+    hwnd: HWND,
+    parent: HWND,
+    virtual_keys: Vec<u32>,
+  ) {
+    let _ = RemoveWindowSubclass(
+      hwnd,
+      Some(Self::keyboard_passthrough_subclass_proc),
+      KEYBOARD_PASSTHROUGH_SUBCLASS_ID as _,
+    );
+    let _ = SetWindowSubclass(
+      hwnd,
+      Some(Self::keyboard_passthrough_subclass_proc),
+      KEYBOARD_PASSTHROUGH_SUBCLASS_ID as _,
+      Box::into_raw(Box::new(KeyboardPassthroughSubclassData {
+        parent,
+        virtual_keys,
+      })) as _,
+    );
+  }
+
+  unsafe fn install_parent_keyboard_passthrough(
+    parent: HWND,
+    hwnd: HWND,
+    virtual_keys: Vec<u32>,
+  ) {
+    Self::attach_keyboard_passthrough_subclass(hwnd, parent, virtual_keys.clone());
+
+    let data = KeyboardPassthroughSubclassData {
+      parent,
+      virtual_keys,
+    };
+    let _ = EnumChildWindows(
+      Some(hwnd),
+      Some(Self::enum_keyboard_passthrough_child_proc),
+      LPARAM((&data as *const KeyboardPassthroughSubclassData) as isize),
+    );
+  }
+
   fn parent_bounds(hwnd: HWND) -> Result<PhysicalSize<i32>> {
     let mut client_rect = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client_rect)? };
@@ -1710,6 +1813,25 @@ impl InnerWebView {
 
   pub fn webview(&self) -> Option<ICoreWebView2> {
     self.state.borrow().webview.clone()
+  }
+
+  pub fn set_parent_keyboard_passthrough_virtual_keys(
+    &self,
+    virtual_keys: Vec<u32>,
+  ) -> Result<()> {
+    let webview_ready = {
+      let mut state = self.state.borrow_mut();
+      state.parent_keyboard_passthrough_virtual_keys = virtual_keys.clone();
+      state.webview.is_some()
+    };
+
+    if webview_ready && !virtual_keys.is_empty() {
+      unsafe {
+        Self::install_parent_keyboard_passthrough(*self.parent.borrow(), self.hwnd, virtual_keys);
+      }
+    }
+
+    Ok(())
   }
 
   pub fn eval(

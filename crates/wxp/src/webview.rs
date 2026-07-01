@@ -105,6 +105,36 @@ impl WxpWebView {
             inner: Arc::downgrade(&self.inner),
         }
     }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_parent_keyboard_passthrough_key_codes(
+        &self,
+        key_codes: Vec<u16>,
+    ) -> Result<()> {
+        use wry::WebViewExtMacOS;
+
+        // Keep raw native access inside this owner so wxp can expose a stable routing policy
+        // without leaking wry's platform extension traits through its public API.
+        self.inner
+            .borrow()
+            .set_parent_keyboard_passthrough_key_codes(key_codes)
+            .map_err(Into::into)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn set_parent_keyboard_passthrough_virtual_keys(
+        &self,
+        virtual_keys: Vec<u32>,
+    ) -> Result<()> {
+        use wry::WebViewExtWindows;
+
+        // WebView2 creation can complete after this call, so the wry backend stores the policy
+        // and installs it once the controller and child HWNDs exist.
+        self.inner
+            .borrow()
+            .set_parent_keyboard_passthrough_virtual_keys(virtual_keys)
+            .map_err(Into::into)
+    }
 }
 
 impl WebViewDispatch {

@@ -2262,6 +2262,9 @@ pub trait WebViewExtWindows {
 
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND;
+
+  /// Routes matching key messages to the parent HWND before WebView2 consumes them.
+  fn set_parent_keyboard_passthrough_virtual_keys(&self, virtual_keys: Vec<u32>) -> Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -2293,6 +2296,10 @@ impl WebViewExtWindows for WebView {
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND {
     self.webview.hwnd()
+  }
+
+  fn set_parent_keyboard_passthrough_virtual_keys(&self, virtual_keys: Vec<u32>) -> Result<()> {
+    self.webview.set_parent_keyboard_passthrough_virtual_keys(virtual_keys)
   }
 }
 
@@ -2394,6 +2401,9 @@ pub trait WebViewExtMacOS {
   /// Warning: Do not use this if your chosen window library does not support traffic light insets.
   /// Warning: Only use this in **decorated** windows with a **hidden titlebar**!
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()>;
+
+  /// Routes matching key events to the parent NSView before WebKit consumes them.
+  fn set_parent_keyboard_passthrough_key_codes(&self, key_codes: Vec<u16>) -> Result<()>;
 }
 
 #[cfg(target_os = "macos")]
@@ -2420,6 +2430,11 @@ impl WebViewExtMacOS for WebView {
 
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()> {
     self.webview.set_traffic_light_inset(position.into())
+  }
+
+  fn set_parent_keyboard_passthrough_key_codes(&self, key_codes: Vec<u16>) -> Result<()> {
+    self.webview.webview.set_parent_keyboard_passthrough_key_codes(key_codes);
+    Ok(())
   }
 }
 

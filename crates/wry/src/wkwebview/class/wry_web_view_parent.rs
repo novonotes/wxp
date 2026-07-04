@@ -35,7 +35,18 @@ define_class!(
     #[cfg(target_os = "macos")]
     #[unsafe(method(keyDown:))]
     fn key_down(&self, event: &NSEvent) {
-      if self.ivars().embedded_webview.borrow().is_some() {
+      let is_child_wrapper = self.ivars().embedded_webview.borrow().is_some();
+
+      // Parent forwarding can re-enter this wrapper before the original keyDown has unwound from
+      // the host. The WebView already delivered that first event to the host, so this nested pass
+      // is only a bounce from AppKit responder routing and must not be forwarded again. Window
+      // WebViews also use this wrapper as their first parent target, so only child wrappers may
+      // treat an active parent-forwarding guard as a nested host bounce.
+      if is_child_wrapper && crate::wkwebview::keyboard_routing::parent_forwarding_is_active() {
+        return;
+      }
+
+      if is_child_wrapper {
         // Child WebViews route parent-bound key events from the WebView itself. The wrapper must
         // not forward arbitrary keyDown events, because doing so can re-enter AppKit routing while
         // the WebView is still processing the original native event.

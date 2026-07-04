@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Weak};
 use wry::WebView;
 
-use crate::keyboard::WxpKeyboardRouting;
+use crate::keyboard::KeyboardRouting;
 use crate::{Error, Rect, Result};
 
 /// UI-thread owner of a native WebView.
@@ -107,7 +107,7 @@ impl WxpWebView {
         }
     }
 
-    pub fn set_keyboard_routing(&self, routing: WxpKeyboardRouting) -> Result<()> {
+    pub fn set_keyboard_routing(&self, routing: KeyboardRouting) -> Result<()> {
         set_keyboard_routing_for_wry_webview(&self.inner.borrow(), routing).map_err(Into::into)
     }
 }
@@ -115,63 +115,38 @@ impl WxpWebView {
 #[cfg(target_os = "macos")]
 fn set_keyboard_routing_for_wry_webview(
     webview: &WebView,
-    routing: WxpKeyboardRouting,
+    routing: KeyboardRouting,
 ) -> std::result::Result<(), wry::Error> {
     use wry::WebViewExtMacOS;
 
-    let routes = routing
-        .macos_routes()
-        .into_iter()
-        .map(|(key_code, destination)| (key_code, to_wry_keyboard_destination(destination)))
-        .collect();
-
     // Keep raw native access inside this owner so wxp can expose a stable routing policy
     // without leaking wry's platform extension traits through its public API.
-    webview.set_keyboard_event_routes(routes)
+    webview.set_keyboard_event_routing(routing.macos_routing())
 }
 
 #[cfg(windows)]
 fn set_keyboard_routing_for_wry_webview(
     webview: &WebView,
-    routing: WxpKeyboardRouting,
+    routing: KeyboardRouting,
 ) -> std::result::Result<(), wry::Error> {
     use wry::WebViewExtWindows;
 
-    let routes = routing
-        .windows_routes()
-        .into_iter()
-        .map(|(virtual_key, destination)| (virtual_key, to_wry_keyboard_destination(destination)))
-        .collect();
-
     // WebView2 creation can complete after this call, so the wry backend stores the policy
     // and installs it once the controller and child HWNDs exist.
-    webview.set_keyboard_event_routes(routes)
+    webview.set_keyboard_event_routing(routing.windows_routing())
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
 fn set_keyboard_routing_for_wry_webview(
     _webview: &WebView,
-    _routing: WxpKeyboardRouting,
+    _routing: KeyboardRouting,
 ) -> std::result::Result<(), wry::Error> {
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", windows))]
-fn to_wry_keyboard_destination(
-    value: crate::WxpKeyboardDestination,
-) -> wry::KeyboardEventDestination {
-    match value {
-        crate::WxpKeyboardDestination::WebView => wry::KeyboardEventDestination::WebView,
-        crate::WxpKeyboardDestination::Parent => wry::KeyboardEventDestination::Parent,
-        crate::WxpKeyboardDestination::WebViewAndParent => {
-            wry::KeyboardEventDestination::WebViewAndParent
-        }
-    }
-}
-
 impl WebViewDispatch {
     /// Posts a keyboard routing update to the WebView's run loop.
-    pub fn post_set_keyboard_routing(&self, routing: WxpKeyboardRouting) -> Result<()> {
+    pub fn post_set_keyboard_routing(&self, routing: KeyboardRouting) -> Result<()> {
         self.post_webview_op("set_keyboard_routing", move |webview| {
             set_keyboard_routing_for_wry_webview(webview, routing)
         })

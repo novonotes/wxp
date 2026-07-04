@@ -49,10 +49,18 @@ Embedded plugin UIs sometimes need to let selected host shortcuts bypass the Web
 other keys available to the frontend. Configure a routing policy on the builder:
 
 ```rust
-use wxp::{WxpKeyboardDestination, WxpKeyboardKey, WxpKeyboardRouting};
+use wxp::keyboard::{
+    KeyboardChord, KeyboardDefaults, KeyboardDestination, KeyboardKey, KeyboardRouting,
+};
 
-let routing = WxpKeyboardRouting::new()
-    .route(WxpKeyboardKey::Space, WxpKeyboardDestination::Parent);
+let routing = KeyboardRouting::new(KeyboardDefaults {
+    key_events: KeyboardDestination::WebView,
+    accelerators: KeyboardDestination::WebView,
+})
+.route(
+    KeyboardChord::new(KeyboardKey::Space),
+    KeyboardDestination::Parent,
+);
 
 let webview = WxpWebViewBuilder::new(&mut web_context)
     .with_keyboard_routing(routing)
@@ -60,9 +68,11 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .build_as_child(&window)?;
 ```
 
-Common keys are mapped on supported platforms. Use `WxpKeyboardKey::native` when a host integration
+`key_events` controls regular keyDown/keyUp-style events. `accelerators` controls platform
+shortcut paths such as macOS key equivalents or Windows accelerator-style messages.
+Common keys are mapped on supported platforms. Use `KeyboardKey::native` when a host integration
 needs a platform-specific key code that is not covered by the common key list.
-`WxpKeyboardDestination::WebViewAndParent` forwards a matching key to the parent and still lets the
+`KeyboardDestination::WebViewAndParent` forwards a matching key to the parent and still lets the
 WebView process it, so use it only when the duplicate action is intentional.
 Call `WxpWebView::set_keyboard_routing` or `WebViewDispatch::post_set_keyboard_routing` to switch
 policies while the WebView is running.

@@ -439,15 +439,16 @@ impl RunLoop {
             // This is a safety net; ideally no panic should occur here.
             if let Ok(tasks) = instance.active_tasks.lock() {
                 for weak_task in tasks.iter() {
-                    if let Some(task) = weak_task.upgrade()
-                        && let Err(e) =
+                    if let Some(task) = weak_task.upgrade() {
+                        if let Err(e) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 task.abort();
                             }))
-                    {
-                        log::error!(
-                            "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
-                        );
+                        {
+                            log::error!(
+                                "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
+                            );
+                        }
                     }
                 }
             }

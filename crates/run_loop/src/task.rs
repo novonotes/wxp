@@ -134,16 +134,15 @@ impl<T: 'static> ArcWake for Task<T> {
             // Guard against redundant wakes: skip the poll if the task already
             // produced a value or was aborted, then notify the joiner if the
             // result is now available.
-            if arc_self.value.borrow().is_none()
-                && !arc_self.aborted.load(Ordering::Acquire)
-                && let Poll::Ready(result) = arc_self.poll()
-            {
-                *arc_self.value.borrow_mut() = Some(result);
+            if arc_self.value.borrow().is_none() && !arc_self.aborted.load(Ordering::Acquire) {
+                if let Poll::Ready(result) = arc_self.poll() {
+                    *arc_self.value.borrow_mut() = Some(result);
+                }
             }
-            if (arc_self.value.borrow().is_some() || arc_self.aborted.load(Ordering::Acquire))
-                && let Some(waker) = arc_self.waker.borrow_mut().take()
-            {
-                waker.wake();
+            if arc_self.value.borrow().is_some() || arc_self.aborted.load(Ordering::Acquire) {
+                if let Some(waker) = arc_self.waker.borrow_mut().take() {
+                    waker.wake();
+                }
             }
         });
     }

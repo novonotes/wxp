@@ -1,5 +1,5 @@
 use crate::initialization::get_initialization_scripts;
-use crate::keyboard::{WxpKeyboardRouting, apply_keyboard_routing};
+use crate::keyboard::{KeyboardDefaults, KeyboardRouting, apply_keyboard_routing};
 use crate::web_context::WebContext;
 use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
@@ -51,7 +51,7 @@ use zip::result::ZipError;
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,
     command_handler: Option<Rc<WxpCommandHandler>>,
-    keyboard_routing: WxpKeyboardRouting,
+    keyboard_routing: KeyboardRouting,
 }
 
 impl<'a> WxpWebViewBuilder<'a> {
@@ -71,7 +71,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: None,
-            keyboard_routing: WxpKeyboardRouting::default(),
+            keyboard_routing: KeyboardRouting::new(KeyboardDefaults::WEBVIEW),
         }
     }
 
@@ -79,7 +79,7 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// Plugin hosts commonly reserve a few global shortcuts while the WebView still needs normal
     /// key input. Keeping this policy in native code lets the original key event reach the host.
-    pub fn with_keyboard_routing(mut self, routing: WxpKeyboardRouting) -> Self {
+    pub fn with_keyboard_routing(mut self, routing: KeyboardRouting) -> Self {
         self.keyboard_routing = routing;
         self
     }

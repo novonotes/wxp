@@ -117,7 +117,7 @@ struct WebViewState {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
-  keyboard_event_routes: Rc<RefCell<Vec<(u32, crate::KeyboardEventDestination)>>>,
+  keyboard_event_routing: Rc<RefCell<crate::KeyboardEventRouting<u32>>>,
   keyboard_routing_installed: bool,
 }
 
@@ -235,7 +235,7 @@ impl InnerWebView {
       pending_bounds: None,
       pending_navigation: None,
       drag_drop_controller: None,
-      keyboard_event_routes: Default::default(),
+      keyboard_event_routing: Default::default(),
       keyboard_routing_installed: false,
     }));
 
@@ -683,9 +683,9 @@ impl InnerWebView {
       let _ = Self::apply_navigation(&env, &webview, navigation);
     }
 
-    let keyboard_event_routes = creation.state.borrow().keyboard_event_routes.clone();
+    let keyboard_event_routing = creation.state.borrow().keyboard_event_routing.clone();
     unsafe {
-      keyboard_routing::install(creation.parent, creation.hwnd, keyboard_event_routes);
+      keyboard_routing::install(creation.parent, creation.hwnd, keyboard_event_routing);
     }
     creation.state.borrow_mut().keyboard_routing_installed = true;
   }
@@ -1723,13 +1723,13 @@ impl InnerWebView {
     self.state.borrow().webview.clone()
   }
 
-  pub fn set_keyboard_event_routes(
+  pub fn set_keyboard_event_routing(
     &self,
-    routes: Vec<(u32, crate::KeyboardEventDestination)>,
+    routing: crate::KeyboardEventRouting<u32>,
   ) -> Result<()> {
     let should_install = {
       let state = self.state.borrow_mut();
-      *state.keyboard_event_routes.borrow_mut() = routes;
+      *state.keyboard_event_routing.borrow_mut() = routing;
       state.webview.is_some() && !state.keyboard_routing_installed
     };
 
@@ -1738,7 +1738,7 @@ impl InnerWebView {
         keyboard_routing::install(
           *self.parent.borrow(),
           self.hwnd,
-          self.state.borrow().keyboard_event_routes.clone(),
+          self.state.borrow().keyboard_event_routing.clone(),
         );
       }
       self.state.borrow_mut().keyboard_routing_installed = true;

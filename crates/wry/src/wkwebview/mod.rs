@@ -310,7 +310,7 @@ impl InnerWebView {
         #[cfg(target_os = "macos")]
         accept_first_mouse: Bool::new(attributes.accept_first_mouse),
         #[cfg(target_os = "macos")]
-        keyboard_event_routes: Default::default(),
+        keyboard_event_routing: Default::default(),
         #[cfg(target_os = "ios")]
         input_accessory_view_builder: pl_attrs.input_accessory_view_builder,
         custom_protocol_task_ids: Default::default(),
@@ -509,8 +509,10 @@ impl InnerWebView {
       #[cfg(target_os = "macos")]
       {
         if is_child {
-          // fixed element
-          webview.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinYMargin);
+          webview.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewHeightSizable
+              | NSAutoresizingMaskOptions::ViewWidthSizable,
+          );
         } else {
           // Auto-resize
           webview.setAutoresizingMask(
@@ -671,7 +673,19 @@ r#"Object.defineProperty(window, 'ipc', {
       #[cfg(target_os = "macos")]
       {
         if is_child {
-          ns_view.addSubview(&webview);
+          let webview_frame = webview.frame();
+          let parent_view = WryWebViewParent::new(mtm);
+          parent_view.setFrame(webview_frame);
+          parent_view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinYMargin);
+
+          webview.setFrame(CGRect {
+            origin: CGPoint::new(0.0, 0.0),
+            size: webview_frame.size,
+          });
+          parent_view.set_embedded_webview(webview.clone());
+          parent_view.addSubview(&webview);
+          ns_view.addSubview(&parent_view);
+          w.parent_view = Some(parent_view);
         } else {
           // inject the webview into the window
           // Some plug-in hosts construct editor views before the NSView has entered an NSWindow.
@@ -1005,6 +1019,26 @@ r#"Object.defineProperty(window, 'ipc', {
   pub fn bounds(&self) -> crate::Result<Rect> {
     #[allow(unused_unsafe)]
     unsafe {
+      #[cfg(target_os = "macos")]
+      if self.is_child {
+        if let Some(parent_view) = self.parent_view.as_ref() {
+          let parent_frame = parent_view.frame();
+          let parent_height = parent_view
+            .superview()
+            .map(|parent| parent.frame().size.height)
+            .unwrap_or(parent_frame.size.height);
+
+          return Ok(Rect {
+            position: LogicalPosition::new(
+              parent_frame.origin.x,
+              parent_height - parent_frame.origin.y - parent_frame.size.height,
+            )
+            .into(),
+            size: LogicalSize::new(parent_frame.size.width, parent_frame.size.height).into(),
+          });
+        }
+      }
+
       let webview_frame = self.webview.frame();
       // Upstream unwraps `superview()`. An embedded editor can be queried
       // before the host attaches it, so fall back to the webview's own height
@@ -1040,7 +1074,19 @@ r#"Object.defineProperty(window, 'ipc', {
       let (width, height) = bounds.size.to_logical::<i32>(scale_factor).into();
 
       unsafe {
-        if let Some(parent_view) = self.webview.superview() {
+        if let Some(wrapper_view) = self.parent_view.as_ref() {
+          if let Some(parent_view) = wrapper_view.superview() {
+            let frame = CGRect {
+              origin: window_position(&parent_view, x, y, height),
+              size: CGSize::new(width, height),
+            };
+            wrapper_view.setFrame(frame);
+            self.webview.setFrame(CGRect {
+              origin: CGPoint::new(0.0, 0.0),
+              size: CGSize::new(width, height),
+            });
+          }
+        } else if let Some(parent_view) = self.webview.superview() {
           let frame = CGRect {
             origin: window_position(&parent_view, x, y, height),
             size: CGSize::new(width, height),
@@ -1299,7 +1345,14 @@ r#"Object.defineProperty(window, 'ipc', {
       // No-op if the target window has no content view yet (upstream unwraps);
       // the host will reparent again once its window is fully constructed.
       if let Some(content_view) = (*window).contentView() {
-        content_view.addSubview(&self.webview);
+        if let Some(parent_view) = self.parent_view.as_ref() {
+          // Child WebViews use a wrapper to keep AppKit accelerator routing stable. Reparenting
+          // the inner WKWebView directly would detach it from that wrapper and bypass the routing
+          // path installed for embedded plug-in editors.
+          content_view.addSubview(parent_view);
+        } else {
+          content_view.addSubview(&self.webview);
+        }
       }
     }
 

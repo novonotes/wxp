@@ -2228,6 +2228,80 @@ pub enum KeyboardEventDestination {
   WebViewAndParent,
 }
 
+/// Defaults for keyboard routing paths that do not match an explicit route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyboardEventDefaults {
+  /// Default destination for regular keyDown/keyUp-style events.
+  pub key_events: KeyboardEventDestination,
+  /// Default destination for platform accelerator/key-equivalent events.
+  pub accelerators: KeyboardEventDestination,
+}
+
+impl Default for KeyboardEventDefaults {
+  fn default() -> Self {
+    Self {
+      key_events: KeyboardEventDestination::WebView,
+      accelerators: KeyboardEventDestination::WebView,
+    }
+  }
+}
+
+/// Keyboard routing policy using native key codes for the active backend.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardEventRouting<KeyCode> {
+  pub defaults: KeyboardEventDefaults,
+  pub routes: Vec<KeyboardEventRoute<KeyCode>>,
+}
+
+impl<KeyCode> Default for KeyboardEventRouting<KeyCode> {
+  fn default() -> Self {
+    Self {
+      defaults: KeyboardEventDefaults::default(),
+      routes: Vec::new(),
+    }
+  }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardEventRoute<KeyCode> {
+  pub chord: KeyboardEventChord<KeyCode>,
+  pub destination: KeyboardEventDestination,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyboardEventChord<KeyCode> {
+  pub key_code: KeyCode,
+  pub modifiers: KeyboardEventModifiers,
+}
+
+/// Exact modifier matcher for a keyboard route.
+///
+/// When `any` is false, every modifier field is matched exactly. This prevents a route for a bare
+/// key from also catching command/control shortcuts. When `any` is true, modifiers are ignored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardEventModifiers {
+  pub shift: bool,
+  pub control: bool,
+  pub alt: bool,
+  pub meta: bool,
+  pub any: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeyboardEventRoutingKind {
+  KeyEvent,
+  Accelerator,
+}
+
+impl KeyboardEventDefaults {
+  pub(crate) fn destination_for(self, kind: KeyboardEventRoutingKind) -> KeyboardEventDestination {
+    match kind {
+      KeyboardEventRoutingKind::KeyEvent => self.key_events,
+      KeyboardEventRoutingKind::Accelerator => self.accelerators,
+    }
+  }
+}
+
 /// Additional methods on `WebView` that are specific to Windows.
 #[cfg(target_os = "windows")]
 pub trait WebViewExtWindows {
@@ -2275,10 +2349,7 @@ pub trait WebViewExtWindows {
   fn hwnd(&self) -> windows::Win32::Foundation::HWND;
 
   /// Routes matching key messages before WebView2 consumes them.
-  fn set_keyboard_event_routes(
-    &self,
-    routes: Vec<(u32, KeyboardEventDestination)>,
-  ) -> Result<()>;
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u32>) -> Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -2312,11 +2383,8 @@ impl WebViewExtWindows for WebView {
     self.webview.hwnd()
   }
 
-  fn set_keyboard_event_routes(
-    &self,
-    routes: Vec<(u32, KeyboardEventDestination)>,
-  ) -> Result<()> {
-    self.webview.set_keyboard_event_routes(routes)
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u32>) -> Result<()> {
+    self.webview.set_keyboard_event_routing(routing)
   }
 }
 
@@ -2420,10 +2488,7 @@ pub trait WebViewExtMacOS {
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()>;
 
   /// Routes matching key events before WebKit consumes them.
-  fn set_keyboard_event_routes(
-    &self,
-    routes: Vec<(u16, KeyboardEventDestination)>,
-  ) -> Result<()>;
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u16>) -> Result<()>;
 }
 
 #[cfg(target_os = "macos")]
@@ -2452,11 +2517,8 @@ impl WebViewExtMacOS for WebView {
     self.webview.set_traffic_light_inset(position.into())
   }
 
-  fn set_keyboard_event_routes(
-    &self,
-    routes: Vec<(u16, KeyboardEventDestination)>,
-  ) -> Result<()> {
-    self.webview.webview.set_keyboard_event_routes(routes);
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u16>) -> Result<()> {
+    self.webview.webview.set_keyboard_event_routing(routing);
     Ok(())
   }
 }

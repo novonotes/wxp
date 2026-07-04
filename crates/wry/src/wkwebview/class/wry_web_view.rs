@@ -30,7 +30,7 @@ pub struct WryWebViewIvars {
   #[cfg(target_os = "macos")]
   pub(crate) accept_first_mouse: objc2::runtime::Bool,
   #[cfg(target_os = "macos")]
-  pub(crate) keyboard_event_routes: Mutex<Vec<(u16, crate::KeyboardEventDestination)>>,
+  pub(crate) keyboard_event_routing: Mutex<crate::KeyboardEventRouting<u16>>,
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
@@ -146,11 +146,8 @@ define_class!(
 // Custom Protocol Task Checker
 impl WryWebView {
   #[cfg(target_os = "macos")]
-  pub(crate) fn set_keyboard_event_routes(
-    &self,
-    routes: Vec<(u16, crate::KeyboardEventDestination)>,
-  ) {
-    crate::wkwebview::keyboard_routing::set_routes(self, routes);
+  pub(crate) fn set_keyboard_event_routing(&self, routing: crate::KeyboardEventRouting<u16>) {
+    crate::wkwebview::keyboard_routing::set_routing(self, routing);
   }
 
   pub(crate) fn add_custom_task_key(&self, task_id: usize) -> Retained<NSUUID> {

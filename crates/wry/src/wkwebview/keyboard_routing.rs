@@ -13,6 +13,9 @@ pub(crate) fn set_routing(webview: &WryWebView, routing: KeyboardEventRouting<u1
 }
 
 thread_local! {
+  // Parent forwarding happens on the AppKit main thread, but keeping the guard thread-local makes
+  // the contract explicit: only synchronous native event re-entry on the same thread is suppressed.
+  // Later asynchronous key events must be routed normally so host shortcuts continue to work.
   static PARENT_FORWARD_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -24,6 +27,8 @@ struct ParentForwardGuard;
 
 impl ParentForwardGuard {
   fn enter() -> Self {
+    // Use a depth counter instead of a boolean because host code may synchronously call through
+    // another forwarding path before unwinding. The outermost guard owns restoration.
     PARENT_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
     Self
   }
@@ -57,6 +62,8 @@ pub(crate) fn handle_key_event(webview: &WryWebView, event: &NSEvent, selector: 
   // Some plugin hosts bounce a parent-routed keyDown back into the embedded WebView while the
   // original native event is still being forwarded. Treat that synchronous re-entry as handled so
   // the host receives the first event without letting AppKit recurse until the main stack overflows.
+  // Do not route this nested event to either side; it is the same native dispatch returning through
+  // the host, not a new user action.
   if parent_forwarding_is_active() {
     return true;
   }
@@ -108,9 +115,9 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
     parent.clone()
   };
 
-  // Child WebViews sit inside a lightweight wrapper. Parent-routed events must skip that wrapper
-  // and continue to the host NSView, otherwise AppKit can re-enter our wrapper/WebView pair instead
-  // of delivering parent-routed shortcuts to the embedding application.
+  // Keep the guard around the whole responder swap and selector call. Some hosts forward keyDown
+  // back to the current first responder before this function unwinds, so ending the guard before
+  // restoring focus would reopen the recursion path that caused stack-overflow crashes.
   let _guard = ParentForwardGuard::enter();
   if let Some(window) = webview.window() {
     let _ = window.makeFirstResponder(Some(&target));

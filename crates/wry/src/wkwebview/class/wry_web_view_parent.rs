@@ -35,6 +35,12 @@ define_class!(
     #[cfg(target_os = "macos")]
     #[unsafe(method(keyDown:))]
     fn key_down(&self, event: &NSEvent) {
+      // The wrapper can be re-entered by host views that route keyDown back toward first responder.
+      // Dropping only that nested event preserves the initial parent dispatch and avoids recursion.
+      if crate::wkwebview::keyboard_routing::parent_forwarding_is_active() {
+        return;
+      }
+
       if self.ivars().embedded_webview.borrow().is_some() {
         // Child WebViews route parent-bound key events from the WebView itself. The wrapper must
         // not forward arbitrary keyDown events, because doing so can re-enter AppKit routing while

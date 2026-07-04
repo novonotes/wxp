@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use objc2::{msg_send, runtime::Sel, DeclaredClass};
 use objc2_app_kit::{NSEvent, NSEventModifierFlags};
 
@@ -8,6 +10,29 @@ use crate::{
 
 pub(crate) fn set_routing(webview: &WryWebView, routing: KeyboardEventRouting<u16>) {
   *webview.ivars().keyboard_event_routing.lock().unwrap() = routing;
+}
+
+thread_local! {
+  static PARENT_FORWARD_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+pub(crate) fn parent_forwarding_is_active() -> bool {
+  PARENT_FORWARD_DEPTH.with(|depth| depth.get() > 0)
+}
+
+struct ParentForwardGuard;
+
+impl ParentForwardGuard {
+  fn enter() -> Self {
+    PARENT_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    Self
+  }
+}
+
+impl Drop for ParentForwardGuard {
+  fn drop(&mut self) {
+    PARENT_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+  }
 }
 
 pub(crate) fn route_destination(
@@ -29,6 +54,13 @@ pub(crate) fn route_destination(
 }
 
 pub(crate) fn handle_key_event(webview: &WryWebView, event: &NSEvent, selector: Sel) -> bool {
+  // Some plugin hosts bounce a parent-routed keyDown back into the embedded WebView while the
+  // original native event is still being forwarded. Treat that synchronous re-entry as handled so
+  // the host receives the first event without letting AppKit recurse until the main stack overflows.
+  if parent_forwarding_is_active() {
+    return true;
+  }
+
   let destination = route_destination(webview, event, KeyboardEventRoutingKind::KeyEvent);
 
   match destination {
@@ -79,6 +111,7 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
   // Child WebViews sit inside a lightweight wrapper. Parent-routed events must skip that wrapper
   // and continue to the host NSView, otherwise AppKit can re-enter our wrapper/WebView pair instead
   // of delivering parent-routed shortcuts to the embedding application.
+  let _guard = ParentForwardGuard::enter();
   if let Some(window) = webview.window() {
     let _ = window.makeFirstResponder(Some(&target));
   }

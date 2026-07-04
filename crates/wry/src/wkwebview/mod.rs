@@ -1345,7 +1345,14 @@ r#"Object.defineProperty(window, 'ipc', {
       // No-op if the target window has no content view yet (upstream unwraps);
       // the host will reparent again once its window is fully constructed.
       if let Some(content_view) = (*window).contentView() {
-        content_view.addSubview(&self.webview);
+        if let Some(parent_view) = self.parent_view.as_ref() {
+          // Child WebViews use a wrapper to keep AppKit accelerator routing stable. Reparenting
+          // the inner WKWebView directly would detach it from that wrapper and bypass the routing
+          // path installed for embedded plug-in editors.
+          content_view.addSubview(parent_view);
+        } else {
+          content_view.addSubview(&self.webview);
+        }
       }
     }
 

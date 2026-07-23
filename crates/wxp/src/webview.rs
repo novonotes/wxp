@@ -1,4 +1,4 @@
-use novonotes_run_loop::{RunLoop, RunLoopSender};
+use novonotes_run_loop::{RunLoop, RunLoopGuard};
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Weak};
 use wry::WebView;
 
+use crate::keyboard::KeyboardRouting;
 use crate::{Error, Rect, Result};
 
 /// UI-thread owner of a native WebView.
@@ -16,7 +17,9 @@ pub struct WxpWebView {
     // The native WebView still lives behind SendWrapper because WebViewDispatch must be able to
     // carry a weak handle across threads. Direct access remains confined to this module.
     inner: Arc<SendWrapper<RefCell<WebView>>>,
-    sender: RunLoopSender,
+    // Keep the process-wide run loop bound while the native WebView exists. Field order is
+    // intentional: `inner` must be dropped before this guard releases the run loop binding.
+    _run_loop_guard: RunLoopGuard,
     // Keep the owner !Send + !Sync so native WebView lifetime never moves away from the UI thread.
     _not_send_sync: PhantomData<Rc<()>>,
 }
@@ -35,7 +38,6 @@ pub struct WxpWebView {
 pub struct WebViewDispatch {
     // Weak ownership keeps this handle Send + Sync without making it a hidden lifetime owner.
     inner: Weak<SendWrapper<RefCell<WebView>>>,
-    sender: RunLoopSender,
 }
 
 struct AbandonedPostCleanup<C: FnOnce() + Send + 'static> {
@@ -89,9 +91,10 @@ impl WxpWebView {
         if !RunLoop::is_run_loop_thread() {
             return Err(Error::RunLoopNotInitialized);
         }
+        let run_loop_guard = RunLoop::init().map_err(|_| Error::RunLoopNotInitialized)?;
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
-            sender: RunLoop::sender().map_err(|_| Error::RunLoopNotInitialized)?,
+            _run_loop_guard: run_loop_guard,
             _not_send_sync: PhantomData,
         })
     }
@@ -101,8 +104,52 @@ impl WxpWebView {
         WebViewDispatch {
             // Dispatch handles intentionally do not prolong the native WebView lifetime.
             inner: Arc::downgrade(&self.inner),
-            sender: self.sender.clone(),
         }
+    }
+
+    pub fn set_keyboard_routing(&self, routing: KeyboardRouting) -> Result<()> {
+        set_keyboard_routing_for_wry_webview(&self.inner.borrow(), routing).map_err(Into::into)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_keyboard_routing_for_wry_webview(
+    webview: &WebView,
+    routing: KeyboardRouting,
+) -> std::result::Result<(), wry::Error> {
+    use wry::WebViewExtMacOS;
+
+    // Keep raw native access inside this owner so wxp can expose a stable routing policy
+    // without leaking wry's platform extension traits through its public API.
+    webview.set_keyboard_event_routing(routing.macos_routing())
+}
+
+#[cfg(windows)]
+fn set_keyboard_routing_for_wry_webview(
+    webview: &WebView,
+    routing: KeyboardRouting,
+) -> std::result::Result<(), wry::Error> {
+    use wry::WebViewExtWindows;
+
+    // WebView2 creation can complete after this call, so the wry backend stores the policy
+    // and installs it once the controller and child HWNDs exist.
+    webview.set_keyboard_event_routing(routing.windows_routing())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn set_keyboard_routing_for_wry_webview(
+    _webview: &WebView,
+    _routing: KeyboardRouting,
+) -> std::result::Result<(), wry::Error> {
+    Ok(())
+}
+
+impl WebViewDispatch {
+    /// Posts a keyboard routing update to the WebView's run loop.
+    pub fn post_set_keyboard_routing(&self, routing: KeyboardRouting) -> Result<()> {
+        self.post_webview_op("set_keyboard_routing", move |webview| {
+            set_keyboard_routing_for_wry_webview(webview, routing)
+        })
     }
 }
 
@@ -191,12 +238,12 @@ impl WebViewDispatch {
             cleanup.disarm();
         };
 
-        if self.sender.is_same_thread() {
+        if RunLoop::is_run_loop_thread() {
             // Running inline preserves same-thread WebView error reporting and avoids queueing work
             // behind the command currently servicing the WebView.
             run();
-        } else if !self.sender.send(run) {
-            return Err(Error::RunLoopNotInitialized);
+        } else {
+            RunLoop::post(move |_| run()).map_err(|_| Error::RunLoopNotInitialized)?;
         }
 
         Ok(())

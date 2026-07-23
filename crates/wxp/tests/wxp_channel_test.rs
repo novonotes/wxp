@@ -1,7 +1,9 @@
 use host_window::create_window;
 use log::error;
-use novonotes_run_loop::{RunLoop, RunLoopLocal, test_harness};
+use novonotes_run_loop::{RunLoop, RunLoopLocal};
+use run_loop_test_utils::run_gui_tests;
 use serde_json::json;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,7 +36,7 @@ fn stop_app() {
 }
 
 fn main() {
-    test_harness::run_gui_tests(vec![
+    run_gui_tests(vec![
         (
             "channel error handling",
             test_channel_error as fn(&RunLoopLocal) -> std::result::Result<(), String>,
@@ -59,15 +61,13 @@ fn main() {
 }
 
 fn test_channel_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let error_caught = Arc::new(AtomicBool::new(false));
@@ -122,7 +122,7 @@ fn test_channel_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });
@@ -144,15 +144,13 @@ fn test_channel_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String
 }
 
 fn test_channel_json_small(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let message_received = Arc::new(AtomicBool::new(false));
@@ -199,8 +197,7 @@ fn test_channel_json_small(run_loop: &RunLoopLocal) -> std::result::Result<(), S
         let received = message_received_clone.clone();
 
         handler.register_async("send_small_json", move |ctx| {
-            use wxp::Channel;
-            let channel = ctx.arg::<Channel>("ch").unwrap();
+            let channel = ctx.channel("ch").unwrap();
 
             async move {
                 // Send a small JSON message
@@ -240,7 +237,7 @@ fn test_channel_json_small(run_loop: &RunLoopLocal) -> std::result::Result<(), S
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });
@@ -262,15 +259,13 @@ fn test_channel_json_small(run_loop: &RunLoopLocal) -> std::result::Result<(), S
 }
 
 fn test_channel_json_large(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let large_message_received = Arc::new(AtomicBool::new(false));
@@ -323,8 +318,7 @@ fn test_channel_json_large(run_loop: &RunLoopLocal) -> std::result::Result<(), S
         let received = large_message_received_clone.clone();
 
         handler.register_async("send_large", move |ctx| {
-            use wxp::Channel;
-            let channel = ctx.arg::<Channel>("ch").unwrap();
+            let channel = ctx.channel("ch").unwrap();
 
             async move {
                 // Create a message larger than MAX_JSON_DIRECT_EXECUTE_THRESHOLD (8192 bytes)
@@ -368,7 +362,7 @@ fn test_channel_json_large(run_loop: &RunLoopLocal) -> std::result::Result<(), S
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });
@@ -390,15 +384,13 @@ fn test_channel_json_large(run_loop: &RunLoopLocal) -> std::result::Result<(), S
 }
 
 fn test_channel_binary_small(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let binary_message_received = Arc::new(AtomicBool::new(false));
@@ -457,8 +449,7 @@ fn test_channel_binary_small(run_loop: &RunLoopLocal) -> std::result::Result<(),
         let received = binary_message_received_clone.clone();
 
         handler.register_async("send_binary_small", move |ctx| {
-            use wxp::Channel;
-            let channel = ctx.arg::<Channel>("ch").unwrap();
+            let channel = ctx.channel("ch").unwrap();
 
             async move {
                 // Send small binary message (100 bytes)
@@ -494,7 +485,7 @@ fn test_channel_binary_small(run_loop: &RunLoopLocal) -> std::result::Result<(),
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });
@@ -516,15 +507,13 @@ fn test_channel_binary_small(run_loop: &RunLoopLocal) -> std::result::Result<(),
 }
 
 fn test_channel_binary_large(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let binary_message_received = Arc::new(AtomicBool::new(false));
@@ -583,8 +572,7 @@ fn test_channel_binary_large(run_loop: &RunLoopLocal) -> std::result::Result<(),
         let received = binary_message_received_clone.clone();
 
         handler.register_async("send_binary_large", move |ctx| {
-            use wxp::Channel;
-            let channel = ctx.arg::<Channel>("ch").unwrap();
+            let channel = ctx.channel("ch").unwrap();
 
             async move {
                 // Send large binary message (2000 bytes)
@@ -620,7 +608,7 @@ fn test_channel_binary_large(run_loop: &RunLoopLocal) -> std::result::Result<(),
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });

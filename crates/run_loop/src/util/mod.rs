@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// same one — can coexist in one host process; a timestamp (rather than the
 /// module identity) guarantees a reloaded copy starts with a fresh name instead
 /// of colliding with a registration left by the previous load.
-pub fn get_timestamp_suffix() -> String {
+pub(crate) fn get_timestamp_suffix() -> String {
     const BASE36_CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     let timestamp = SystemTime::now()
@@ -48,7 +48,7 @@ mod tests {
     fn test_get_timestamp_suffix() {
         // Should return a non-empty string
         let suffix = get_timestamp_suffix();
-        debug!("suffix: {}", suffix);
+        debug!("suffix: {suffix}");
         assert!(!suffix.is_empty());
 
         // Should consist only of uppercase alphanumeric characters

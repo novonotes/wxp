@@ -42,6 +42,48 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .with_devtools(true)
     .build_as_child(&window)?;
 ```
+
+### Keyboard Routing
+
+Embedded plugin UIs sometimes need to let selected host shortcuts bypass the WebView while keeping
+other keys available to the frontend. Configure a routing policy on the builder:
+
+```rust
+use wxp::keyboard::{
+    AcceleratorDestination, KeyEventDestination, KeyboardChord, KeyboardKey, KeyboardRouting,
+    WebViewAcceleratorDelivery,
+};
+
+let routing = KeyboardRouting::new(
+    KeyEventDestination::WebView,
+    AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+)
+.route_key_event(
+    KeyboardChord::new(KeyboardKey::Space),
+    KeyEventDestination::Parent,
+)
+.route_accelerator(
+    KeyboardChord::new(KeyboardKey::A).with_primary_modifier(),
+    AcceleratorDestination::WebView(WebViewAcceleratorDelivery::KeyEvent),
+);
+
+let webview = WxpWebViewBuilder::new(&mut web_context)
+    .with_keyboard_routing(routing)
+    .with_html(HTML_CONTENT)
+    .build_as_child(&window)?;
+```
+
+Key-event routes control regular keyDown/keyUp-style events. Accelerator routes control platform
+shortcut paths such as macOS key equivalents or Windows accelerator-style messages.
+`WebViewAcceleratorDelivery::PlatformDefault` preserves standard WebView shortcut behavior, while
+`KeyEvent` guarantees the DOM key event path for application-defined shortcuts.
+Common keys are mapped on supported platforms. Use `KeyboardKey::native` when a host integration
+needs a platform-specific key code that is not covered by the common key list.
+The `WebViewAndParent` destinations forward a matching key to the parent and still let the WebView
+process it, so use them only when the duplicate action is intentional.
+Call `WxpWebView::set_keyboard_routing` or `WebViewDispatch::post_set_keyboard_routing` to switch
+policies while the WebView is running.
+
 ## Command
 
 An API similar to Tauri's `invoke` and `command`. Provides request/response communication from JavaScript to Rust.
@@ -111,7 +153,7 @@ await invoke("subscribe_events", { channel: ch });
 ```rust
 handler.register_sync("subscribe_events", |ctx| {
     // Retrieve the channel passed as an argument
-    let channel = ctx.arg::<Channel>("channel").unwrap();
+    let channel = ctx.channel("channel").unwrap();
 
     // Send a JSON message
     channel.send(json!({ "type": "connected" }))?;

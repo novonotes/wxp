@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use objc2::{define_class, msg_send, rc::Retained, runtime::Bool, MainThreadOnly};
 #[cfg(target_os = "macos")]
-use objc2::DefinedClass;
-use objc2::{define_class, msg_send, rc::Retained, MainThreadOnly};
+use objc2::{DefinedClass, Message};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSEvent, NSView, NSWindow, NSWindowButton};
 use objc2_foundation::MainThreadMarker;
@@ -12,10 +12,19 @@ use objc2_foundation::MainThreadMarker;
 use objc2_foundation::NSRect;
 #[cfg(target_os = "ios")]
 use objc2_ui_kit::UIView as NSView;
+#[cfg(target_os = "macos")]
+use std::cell::RefCell;
+
+#[cfg(target_os = "macos")]
+use super::wry_web_view::WryWebView;
 
 pub struct WryWebViewParentIvars {
   #[cfg(target_os = "macos")]
   traffic_light_inset: std::cell::Cell<Option<(f64, f64)>>,
+  #[cfg(target_os = "macos")]
+  embedded_webview: RefCell<Option<Retained<WryWebView>>>,
+  #[cfg(target_os = "macos")]
+  forwarded_webview_accelerator: RefCell<Option<Retained<NSEvent>>>,
 }
 
 define_class!(
@@ -28,13 +37,71 @@ define_class!(
     #[cfg(target_os = "macos")]
     #[unsafe(method(keyDown:))]
     fn key_down(&self, event: &NSEvent) {
+      let is_child_wrapper = self.ivars().embedded_webview.borrow().is_some();
+
+      // Parent forwarding can re-enter this wrapper before the original keyDown has unwound from
+      // the host. The WebView already delivered that first event to the host, so this nested pass
+      // is only a bounce from AppKit responder routing and must not be forwarded again. Window
+      // WebViews also use this wrapper as their first parent target, so only child wrappers may
+      // treat an active parent-forwarding guard as a nested host bounce.
+      if is_child_wrapper && crate::wkwebview::keyboard_routing::parent_forwarding_is_active() {
+        return;
+      }
+
+      if is_child_wrapper {
+        // Child WebViews route parent-bound key events from the WebView itself. The wrapper must
+        // not forward arbitrary keyDown events, because doing so can re-enter AppKit routing while
+        // the WebView is still processing the original native event.
+        unsafe { msg_send![super(self), keyDown: event] }
+        return;
+      }
+
       let mtm = MainThreadMarker::new().unwrap();
       let app = NSApplication::sharedApplication(mtm);
-      unsafe {
-        if let Some(menu) = app.mainMenu() {
-          menu.performKeyEquivalent(event);
+      if let Some(menu) = app.mainMenu() {
+        menu.performKeyEquivalent(event);
+      }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(keyUp:))]
+    fn key_up(&self, event: &NSEvent) {
+      unsafe { msg_send![super(self), keyUp: event] }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(performKeyEquivalent:))]
+    fn perform_key_equivalent(&self, event: &NSEvent) -> Bool {
+      if self.has_forwarded_webview_accelerator(event) {
+        // WebKit returns an unhandled command event through AppKit after keyDown. Owning the same
+        // NSEvent here prevents that responder-chain bounce from recursively re-entering WebKit.
+        return Bool::YES;
+      }
+
+      let embedded_webview = self.ivars().embedded_webview.borrow();
+      if let Some(webview) = embedded_webview.as_ref() {
+        let destination = crate::wkwebview::keyboard_routing::route_accelerator(webview, event);
+
+        match destination {
+          crate::KeyboardAcceleratorDestination::WebView(delivery) => {
+            // AppKit sends command-key shortcuts through performKeyEquivalent before keyDown.
+            // The routing policy decides whether WebKit's platform behavior or a guaranteed DOM
+            // key event owns the accelerator. Remembering it keeps an unhandled fallback from
+            // bouncing through AppKit.
+            self.remember_forwarded_webview_accelerator(event);
+            webview.perform_webview_accelerator(event, delivery);
+            return Bool::YES;
+          }
+          crate::KeyboardAcceleratorDestination::WebViewAndParent(delivery) => {
+            // This mode intentionally duplicates handling between the WebView and host parent.
+            self.remember_forwarded_webview_accelerator(event);
+            webview.perform_webview_accelerator(event, delivery);
+          }
+          crate::KeyboardAcceleratorDestination::Parent => {}
         }
       }
+
+      unsafe { msg_send![super(self), performKeyEquivalent: event] }
     }
 
     #[cfg(target_os = "macos")]
@@ -53,8 +120,37 @@ impl WryWebViewParent {
     let delegate = WryWebViewParent::alloc(mtm).set_ivars(WryWebViewParentIvars {
       #[cfg(target_os = "macos")]
       traffic_light_inset: Default::default(),
+      #[cfg(target_os = "macos")]
+      embedded_webview: Default::default(),
+      #[cfg(target_os = "macos")]
+      forwarded_webview_accelerator: Default::default(),
     });
     unsafe { msg_send![super(delegate), init] }
+  }
+
+  #[cfg(target_os = "macos")]
+  pub(crate) fn set_embedded_webview(&self, webview: Retained<WryWebView>) {
+    self.ivars().embedded_webview.replace(Some(webview));
+  }
+
+  #[cfg(target_os = "macos")]
+  fn has_forwarded_webview_accelerator(&self, event: &NSEvent) -> bool {
+    self
+      .ivars()
+      .forwarded_webview_accelerator
+      .borrow()
+      .as_deref()
+      .is_some_and(|forwarded| std::ptr::eq(forwarded, event))
+  }
+
+  #[cfg(target_os = "macos")]
+  fn remember_forwarded_webview_accelerator(&self, event: &NSEvent) {
+    // AppKit serializes accelerator dispatch on the main thread, so only the current event can
+    // re-enter this wrapper. Retaining it until the next dispatch also prevents pointer reuse.
+    self
+      .ivars()
+      .forwarded_webview_accelerator
+      .replace(Some(event.retain()));
   }
 
   #[cfg(target_os = "macos")]

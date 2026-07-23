@@ -1,0 +1,18 @@
+[package]
+name = "run_loop_test_utils"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Test utilities for novonotes_run_loop."
+repository = "https://github.com/novonotes/wxp"
+publish = false
+
+[dependencies]
+log = { workspace = true }
+novonotes_run_loop = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+
+[lints]
+workspace = true

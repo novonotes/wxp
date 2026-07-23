@@ -4,15 +4,21 @@ use std::ffi::OsStr;
 use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use winapi::shared::minwindef::{HINSTANCE, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HWND, RECT};
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::winuser::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, IsWindowVisible,
-    RegisterClassW, SW_HIDE, SW_SHOW, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    AdjustWindowRect, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW,
+    DestroyWindow, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, IsWindowVisible,
+    RegisterClassW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, WM_CLOSE, WM_NCCREATE, WM_NCDESTROY, WM_SIZE, WNDCLASSW,
+    WS_OVERLAPPEDWINDOW,
 };
+
+use crate::{HostWindowCallbacks, HostWindowSize};
 
 static WINDOW_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 const WINDOW_CLASS_NAME: &str = "novonotes.host_window.Window";
@@ -22,9 +28,10 @@ const WINDOW_CLASS_NAME: &str = "novonotes.host_window.Window";
 /// The handle may be moved between threads, but the `HWND` it wraps belongs to
 /// the thread that created the window (Win32 ties window messages to that
 /// thread). The `Send`/`Sync` impls only make the handle transportable.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct HostWindowHandle {
     hwnd: HWND,
+    callbacks: Arc<HostWindowCallbacks>,
 }
 
 // SAFETY: only the raw `HWND` value is shared. The dev harness drives the window
@@ -57,6 +64,45 @@ impl HostWindowHandle {
         unsafe { IsWindowVisible(self.hwnd) != 0 }
     }
 
+    /// Returns the client area size.
+    pub fn size(&self) -> HostWindowSize {
+        unsafe {
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            GetClientRect(self.hwnd, &mut rect);
+            HostWindowSize {
+                width: (rect.right - rect.left).max(0) as u32,
+                height: (rect.bottom - rect.top).max(0) as u32,
+            }
+        }
+    }
+
+    /// Resizes the client area.
+    pub fn set_size(&self, width: u32, height: u32) {
+        unsafe {
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: width as i32,
+                bottom: height as i32,
+            };
+            AdjustWindowRect(&mut rect, WS_OVERLAPPEDWINDOW, 0);
+            SetWindowPos(
+                self.hwnd,
+                ptr::null_mut(),
+                0,
+                0,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+
     /// Destroys the window
     pub fn destroy(self) {
         unsafe {
@@ -78,7 +124,12 @@ impl HasWindowHandle for HostWindowHandle {
 }
 
 /// Builds the dev host window.
-pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
+pub(crate) fn create_window(
+    title: &str,
+    width: f64,
+    height: f64,
+    callbacks: HostWindowCallbacks,
+) -> HostWindowHandle {
     unsafe {
         let hinstance = GetModuleHandleW(ptr::null());
 
@@ -88,9 +139,16 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
             register_window_class(hinstance);
         }
 
-        let hwnd = create_win32_window(title, width as i32, height as i32, hinstance);
+        let callbacks = Arc::new(callbacks);
+        let hwnd = create_win32_window(
+            title,
+            width as i32,
+            height as i32,
+            hinstance,
+            Arc::clone(&callbacks),
+        );
 
-        HostWindowHandle { hwnd }
+        HostWindowHandle { hwnd, callbacks }
     }
 }
 
@@ -127,7 +185,13 @@ unsafe fn register_window_class(hinstance: HINSTANCE) {
 }
 
 /// Creates a Win32 window
-unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: HINSTANCE) -> HWND {
+unsafe fn create_win32_window(
+    title: &str,
+    width: i32,
+    height: i32,
+    hinstance: HINSTANCE,
+    callbacks: Arc<HostWindowCallbacks>,
+) -> HWND {
     unsafe {
         let class_name: Vec<u16> = OsStr::new(WINDOW_CLASS_NAME)
             .encode_wide()
@@ -144,11 +208,12 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
             right: width,
             bottom: height,
         };
-        winapi::um::winuser::AdjustWindowRect(&mut rect, WS_OVERLAPPEDWINDOW, 0);
+        AdjustWindowRect(&mut rect, WS_OVERLAPPEDWINDOW, 0);
 
         let window_width = rect.right - rect.left;
         let window_height = rect.bottom - rect.top;
 
+        let callback_storage = Box::into_raw(Box::new(callbacks));
         let hwnd = CreateWindowExW(
             0,
             class_name.as_ptr(),
@@ -161,10 +226,11 @@ unsafe fn create_win32_window(title: &str, width: i32, height: i32, hinstance: H
             ptr::null_mut(),
             ptr::null_mut(),
             hinstance,
-            ptr::null_mut(),
+            callback_storage.cast(),
         );
 
         if hwnd.is_null() {
+            drop(Box::from_raw(callback_storage));
             panic!(
                 "failed to create Win32 window for class `{}`: error {}",
                 WINDOW_CLASS_NAME,
@@ -187,5 +253,83 @@ unsafe extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    unsafe {
+        match msg {
+            WM_NCCREATE => {
+                let create_struct = lparam as *const CREATESTRUCTW;
+                if !create_struct.is_null() {
+                    SetWindowLongPtrW(
+                        hwnd,
+                        GWLP_USERDATA,
+                        (*create_struct).lpCreateParams as isize,
+                    );
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            WM_CLOSE => {
+                if let Some(callbacks) = window_callbacks(hwnd) {
+                    if let Some(on_close) = callbacks.on_close.as_ref() {
+                        on_close();
+                    }
+                }
+                ShowWindow(hwnd, SW_HIDE);
+                0
+            }
+            WM_SIZE => {
+                let width = (lparam as u32 & 0xffff) as u32;
+                let height = ((lparam as u32 >> 16) & 0xffff) as u32;
+                if width > 0
+                    && height > 0
+                    && let Some(callbacks) = window_callbacks(hwnd)
+                    && let Some(on_resize) = callbacks.on_resize.as_ref()
+                {
+                    let current = HostWindowSize { width, height };
+                    let adjusted = on_resize(current);
+                    if adjusted != current {
+                        set_client_size(hwnd, adjusted.width, adjusted.height);
+                    }
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            WM_NCDESTROY => {
+                let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Arc<HostWindowCallbacks>;
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                if !ptr.is_null() {
+                    drop(Box::from_raw(ptr));
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
+
+unsafe fn window_callbacks(hwnd: HWND) -> Option<Arc<HostWindowCallbacks>> {
+    let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *const Arc<HostWindowCallbacks>;
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { (*ptr).clone() })
+    }
+}
+
+unsafe fn set_client_size(hwnd: HWND, width: u32, height: u32) {
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: width as i32,
+        bottom: height as i32,
+    };
+    unsafe {
+        AdjustWindowRect(&mut rect, WS_OVERLAPPEDWINDOW, 0);
+        SetWindowPos(
+            hwnd,
+            ptr::null_mut(),
+            0,
+            0,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }

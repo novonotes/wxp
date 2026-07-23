@@ -201,14 +201,13 @@ impl Drop for RunLoopInner {
             // Log a warning if any are still alive.
             let active_count = tasks.iter().filter(|t| t.upgrade().is_some()).count();
             if active_count > 0 {
-                warn!(
-                    "Warning: RunLoop dropped with {} active tasks",
-                    active_count
-                );
+                warn!("Warning: RunLoop dropped with {active_count} active tasks");
             }
         }
 
-        // Platform-specific cleanup is handled automatically by each platform's Drop impl.
+        // Platform Drop still calls shutdown as a fallback, but normal cleanup
+        // must already have happened in RunLoop::shutdown() before this Arc is
+        // released. Do not move DSO-unload-sensitive cleanup back here.
     }
 }
 
@@ -289,9 +288,6 @@ pub enum Error {
 
     /// Called from a thread that is not the run loop thread.
     NotRunLoopThread,
-
-    #[cfg(test)]
-    RunLoopThreadNotSet,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -319,11 +315,6 @@ impl Display for Error {
                           If this is a test, use serial_test::serial to run the test in serial."
                 )
             }
-            #[cfg(test)]
-            Error::RunLoopThreadNotSet => write!(
-                f,
-                "main thread was not set. call RunLoop::set_main_thread() from main thread"
-            ),
         }
     }
 }
@@ -372,45 +363,6 @@ impl RunLoop {
     /// and [`call`](Self::call).
     pub fn is_initialized() -> bool {
         INIT_COUNT.load(Ordering::SeqCst) > 0
-    }
-
-    #[cfg(test)]
-    /// Forcibly rebinds the run loop to the current thread.
-    ///
-    /// Mainly a test-suite escape hatch: tests are serialized but a previous
-    /// test may have left the loop bound to a now-dead thread. Rather than
-    /// failing, tear the old loop down and rebuild it here, preserving the
-    /// existing init count so reference counting stays balanced.
-    pub fn ensure_run_loop_on_current_thread() -> Result<RunLoopGuard> {
-        let guard = INIT_MUTEX.lock().unwrap();
-        let count = INIT_COUNT.load(Ordering::SeqCst);
-
-        if count == 0 {
-            // Nothing initialized yet — the normal path is sufficient.
-            drop(guard);
-            return Self::init();
-        }
-
-        if Self::is_run_loop_thread() {
-            // Already where we want to be; nothing to rebuild.
-            INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-            return Ok(RunLoopGuard {
-                local: RunLoopLocal::new(Self::current_local()?),
-            });
-        }
-
-        // Bound to a different (likely dead) thread: rebuild in place and
-        // restore the original count so existing guards stay balanced.
-        INIT_COUNT.store(0, Ordering::SeqCst);
-        Self::shutdown();
-
-        Self::initialize()?;
-        INIT_COUNT.store(count, Ordering::SeqCst);
-        debug_assert!(Self::is_run_loop_thread());
-        INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(RunLoopGuard {
-            local: RunLoopLocal::new(Self::current_local()?),
-        })
     }
 
     /// Releases one run loop initialization reference.
@@ -475,6 +427,12 @@ impl RunLoop {
                 }
             }
 
+            // Drop queued callbacks and unregister native wake/timer sources
+            // before the final guard returns. Plugin hosts may unload the DSO
+            // immediately after deinit, so no native callback may remain armed
+            // even if it would check `has_shutdown` before running Rust code.
+            instance.platform_run_loop.shutdown();
+
             // Abort all active tasks.
             // Catch any panics during abort to prevent crashes.
             // In audio plugins, not crashing the DAW host is the top priority.
@@ -488,8 +446,7 @@ impl RunLoop {
                             }))
                         {
                             log::error!(
-                                "panic during task abort in shutdown (ignored to prevent crash): {:?}",
-                                e
+                                "panic during task abort in shutdown (ignored to prevent crash): {e:?}"
                             );
                         }
                     }
@@ -501,7 +458,9 @@ impl RunLoop {
                 tasks.clear();
             }
 
-            // Platform-specific cleanup is handled automatically by each platform's Drop impl.
+            // Platform resources also call shutdown from Drop, but the explicit
+            // call above is the shutdown contract: after the last guard is
+            // dropped, hosts may unload this DSO immediately.
         }
 
         // Clear the run loop thread ID so a new thread can be set by the next init()
@@ -630,8 +589,7 @@ impl RunLoop {
         var.get_blocking()
     }
 
-    #[doc(hidden)]
-    pub fn sender() -> Result<RunLoopSender> {
+    pub(crate) fn sender() -> Result<RunLoopSender> {
         RUN_LOOP_SENDER
             .lock()
             .unwrap()
@@ -688,19 +646,35 @@ impl RunLoopLocal {
     where
         F: FnOnce(&RunLoopLocal) + 'static,
     {
-        let inner_for_callback = self.run_loop.inner.clone();
+        if self.run_loop.inner.has_shutdown.load(Ordering::SeqCst) {
+            return Handle::inactive();
+        }
+
+        // Detached handles may outlive the final RunLoopGuard. Capturing only a
+        // Weak keeps a scheduled callback from extending RunLoopInner past the
+        // point where shutdown has unregistered the platform callback.
+        let inner_for_callback = Arc::downgrade(&self.run_loop.inner);
         let handle = self
             .run_loop
             .inner
             .platform_run_loop
             .schedule(in_time, move || {
-                callback(&RunLoopLocal::new(RunLoop {
-                    inner: inner_for_callback,
-                }));
+                let Some(inner) = inner_for_callback.upgrade() else {
+                    return;
+                };
+                if inner.has_shutdown.load(Ordering::SeqCst) {
+                    return;
+                }
+                callback(&RunLoopLocal::new(RunLoop { inner }));
             });
-        let inner_clone = self.run_loop.inner.clone();
+        // Cancellation after shutdown must be a no-op rather than recreating
+        // platform timers while the final guard is being torn down.
+        let inner_clone = Arc::downgrade(&self.run_loop.inner);
         Handle::new(move || {
-            inner_clone.platform_run_loop.unschedule(handle);
+            let Some(inner) = inner_clone.upgrade() else {
+                return;
+            };
+            inner.platform_run_loop.unschedule(handle);
         })
     }
 
@@ -714,8 +688,8 @@ impl RunLoopLocal {
         future.await
     }
 
-    /// Returns a sender object that allows other threads to execute callbacks on this run loop.
-    /// Unlike `RunLoop`, the sender implements `Send` and `Sync`.
+    // Internal sender for run-loop-owned tasks and wakers. Public cross-thread
+    // callers go through `RunLoop::post` or `RunLoop::call`.
     pub(crate) fn new_sender(&self) -> RunLoopSender {
         RunLoopSender::new(
             self.run_loop.inner.platform_run_loop.new_sender(),
@@ -958,6 +932,36 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_shutdown_drops_detached_scheduled_callback() {
+        struct DropProbe(Arc<AtomicBool>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let guard = RunLoop::init().unwrap();
+        let run_loop = guard.local();
+        let inner = Arc::downgrade(&run_loop.run_loop.inner);
+        let callback_dropped = Arc::new(AtomicBool::new(false));
+        let probe = DropProbe(callback_dropped.clone());
+
+        run_loop
+            .schedule(Duration::from_secs(60 * 60), move |_| {
+                let _probe = probe;
+                panic!("scheduled callback must not run during shutdown");
+            })
+            .detach();
+
+        drop(guard);
+
+        assert!(callback_dropped.load(Ordering::SeqCst));
+        assert!(inner.upgrade().is_none());
+    }
+
+    #[test]
+    #[serial]
     fn test_async() {
         let guard = RunLoop::init().unwrap();
         let run_loop = guard.local();
@@ -1080,7 +1084,7 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_loop.block_on(async {
                 let inner_result = run_loop.block_on(async { "inner" });
-                format!("outer: {}", inner_result)
+                format!("outer: {inner_result}")
             });
         }));
 

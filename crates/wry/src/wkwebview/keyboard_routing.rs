@@ -17,23 +17,13 @@ thread_local! {
   // the contract explicit: only synchronous native event re-entry on the same thread is suppressed.
   // Later asynchronous key events must be routed normally so host shortcuts continue to work.
   static PARENT_FORWARD_DEPTH: Cell<u32> = const { Cell::new(0) };
-  // WKWebView may synchronously return an unhandled command shortcut to AppKit while the wrapper
-  // is still dispatching the same event. Keep this guard separate from parent keyDown forwarding:
-  // the two responder-chain loops have different entry points and must not suppress each other.
-  static ACCELERATOR_FORWARD_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
 pub(crate) fn parent_forwarding_is_active() -> bool {
   PARENT_FORWARD_DEPTH.with(|depth| depth.get() > 0)
 }
 
-pub(crate) fn accelerator_forwarding_is_active() -> bool {
-  ACCELERATOR_FORWARD_DEPTH.with(|depth| depth.get() > 0)
-}
-
 struct ParentForwardGuard;
-
-pub(crate) struct AcceleratorForwardGuard;
 
 impl ParentForwardGuard {
   fn enter() -> Self {
@@ -47,19 +37,6 @@ impl ParentForwardGuard {
 impl Drop for ParentForwardGuard {
   fn drop(&mut self) {
     PARENT_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-  }
-}
-
-impl AcceleratorForwardGuard {
-  pub(crate) fn enter() -> Self {
-    ACCELERATOR_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-    Self
-  }
-}
-
-impl Drop for AcceleratorForwardGuard {
-  fn drop(&mut self) {
-    ACCELERATOR_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
   }
 }
 
@@ -150,22 +127,5 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
   }
   if let Some(window) = webview.window() {
     let _ = window.makeFirstResponder(Some(webview));
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::{accelerator_forwarding_is_active, AcceleratorForwardGuard};
-
-  #[test]
-  fn accelerator_guard_covers_nested_webkit_delivery_and_restores_afterward() {
-    assert!(!accelerator_forwarding_is_active());
-    {
-      let _guard = AcceleratorForwardGuard::enter();
-      // The native wrapper uses this state before inspecting focus or DOM context, so the same
-      // event is suppressed for overlays, editable controls, and ordinary page content alike.
-      assert!(accelerator_forwarding_is_active());
-    }
-    assert!(!accelerator_forwarding_is_active());
   }
 }

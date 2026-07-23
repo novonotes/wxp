@@ -81,18 +81,15 @@ define_class!(
         match destination {
           crate::KeyboardEventDestination::WebView => {
             // AppKit sends command-key shortcuts through performKeyEquivalent before keyDown.
-            // Send explicitly-routed WebView shortcuts back through the normal keyDown path so
-            // JavaScript receives the same event shape as non-command keyboard shortcuts.
-            unsafe {
-              let _: () = msg_send![&**webview, keyDown: event];
-            }
+            // Keep explicitly WebView-only accelerators inside WKWebView's accelerator path. The
+            // wrapper owns this routing decision even when WebKit does not consume the shortcut,
+            // otherwise AppKit can send the same native event around the responder chain again.
+            webview.perform_webview_key_equivalent(event);
             return Bool::YES;
           }
           crate::KeyboardEventDestination::WebViewAndParent => {
             // This mode intentionally duplicates handling between the WebView and host parent.
-            unsafe {
-              let _: () = msg_send![&**webview, keyDown: event];
-            }
+            webview.perform_webview_key_equivalent(event);
           }
           crate::KeyboardEventDestination::Parent => {}
         }

@@ -5,7 +5,8 @@ use objc2_app_kit::{NSEvent, NSEventModifierFlags};
 
 use crate::wkwebview::class::wry_web_view::WryWebView;
 use crate::{
-  KeyboardEventDestination, KeyboardEventModifiers, KeyboardEventRouting, KeyboardEventRoutingKind,
+  KeyboardAcceleratorDestination, KeyboardEventDestination, KeyboardEventModifiers,
+  KeyboardEventRouting,
 };
 
 pub(crate) fn set_routing(webview: &WryWebView, routing: KeyboardEventRouting<u16>) {
@@ -40,22 +41,46 @@ impl Drop for ParentForwardGuard {
   }
 }
 
-pub(crate) fn route_destination(
+pub(crate) fn route_accelerator(
   webview: &WryWebView,
   event: &NSEvent,
-  kind: KeyboardEventRoutingKind,
-) -> KeyboardEventDestination {
+) -> KeyboardAcceleratorDestination {
   let key_code = event.keyCode();
   let modifiers = event_modifiers(event);
   let routing = webview.ivars().keyboard_event_routing.lock().unwrap();
   routing
-    .routes
+    .accelerator_routes
     .iter()
     .find_map(|route| {
       (route.chord.key_code == key_code && modifiers_match(route.chord.modifiers, modifiers))
         .then_some(route.destination)
     })
-    .unwrap_or_else(|| routing.defaults.destination_for(kind))
+    .unwrap_or(routing.accelerator_default)
+}
+
+pub(crate) fn standard_editing_action(event: &NSEvent) -> Option<Sel> {
+  standard_editing_action_for(
+    event.charactersIgnoringModifiers()?.to_string().as_str(),
+    event.modifierFlags(),
+  )
+}
+
+fn standard_editing_action_for(key: &str, modifiers: NSEventModifierFlags) -> Option<Sel> {
+  let relevant_modifiers =
+    modifiers & NSEventModifierFlags::DeviceIndependentFlagsMask & !NSEventModifierFlags::CapsLock;
+  if relevant_modifiers != NSEventModifierFlags::Command {
+    return None;
+  }
+
+  // WebKit's standard editing commands must stay on the responder-action path because forwarding
+  // them as keyDown alone does not execute the browser's default select/copy/paste/cut behavior.
+  match key.to_ascii_lowercase().as_str() {
+    "a" => Some(objc2::sel!(selectAll:)),
+    "c" => Some(objc2::sel!(copy:)),
+    "v" => Some(objc2::sel!(paste:)),
+    "x" => Some(objc2::sel!(cut:)),
+    _ => None,
+  }
 }
 
 pub(crate) fn handle_key_event(webview: &WryWebView, event: &NSEvent, selector: Sel) -> bool {
@@ -68,7 +93,18 @@ pub(crate) fn handle_key_event(webview: &WryWebView, event: &NSEvent, selector: 
     return true;
   }
 
-  let destination = route_destination(webview, event, KeyboardEventRoutingKind::KeyEvent);
+  let key_code = event.keyCode();
+  let modifiers = event_modifiers(event);
+  let routing = webview.ivars().keyboard_event_routing.lock().unwrap();
+  let destination = routing
+    .key_event_routes
+    .iter()
+    .find_map(|route| {
+      (route.chord.key_code == key_code && modifiers_match(route.chord.modifiers, modifiers))
+        .then_some(route.destination)
+    })
+    .unwrap_or(routing.key_event_default);
+  drop(routing);
 
   match destination {
     KeyboardEventDestination::WebView => false,
@@ -127,5 +163,33 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
   }
   if let Some(window) = webview.window() {
     let _ = window.makeFirstResponder(Some(webview));
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::standard_editing_action_for;
+  use objc2_app_kit::NSEventModifierFlags;
+
+  #[test]
+  fn standard_editing_actions_ignore_caps_lock() {
+    assert_eq!(
+      standard_editing_action_for(
+        "A",
+        NSEventModifierFlags::Command | NSEventModifierFlags::CapsLock,
+      ),
+      Some(objc2::sel!(selectAll:)),
+    );
+  }
+
+  #[test]
+  fn standard_editing_actions_reject_semantic_modifiers() {
+    assert_eq!(
+      standard_editing_action_for(
+        "a",
+        NSEventModifierFlags::Command | NSEventModifierFlags::Shift,
+      ),
+      None,
+    );
   }
 }

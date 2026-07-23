@@ -5,41 +5,73 @@
 
 /// Keyboard routing policy for WebViews embedded in plugin host windows.
 ///
-/// Defaults are explicit because plugin integrations often need to choose whether host-owned
-/// accelerators or WebView-owned application shortcuts should win when no route matches.
+/// Regular key events and accelerators use separate rule tables because a WebView accelerator also
+/// needs an explicit delivery contract. This keeps platform behavior out of the application layer:
+/// macOS may use responder actions while Windows keeps the original WebView2 message path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyboardRouting {
-    defaults: KeyboardDefaults,
-    rules: Vec<KeyboardRoutingRule>,
+    key_event_default: KeyEventDestination,
+    accelerator_default: AcceleratorDestination,
+    key_event_rules: Vec<KeyEventRoutingRule>,
+    accelerator_rules: Vec<AcceleratorRoutingRule>,
 }
 
 impl KeyboardRouting {
-    pub fn new(defaults: KeyboardDefaults) -> Self {
+    pub fn new(
+        key_event_default: KeyEventDestination,
+        accelerator_default: AcceleratorDestination,
+    ) -> Self {
         Self {
-            defaults,
-            rules: Vec::new(),
+            key_event_default,
+            accelerator_default,
+            key_event_rules: Vec::new(),
+            accelerator_rules: Vec::new(),
         }
     }
 
-    pub fn route(mut self, chord: KeyboardChord, destination: KeyboardDestination) -> Self {
-        self.rules.push(KeyboardRoutingRule { chord, destination });
+    pub fn route_key_event(
+        mut self,
+        chord: KeyboardChord,
+        destination: KeyEventDestination,
+    ) -> Self {
+        self.key_event_rules
+            .push(KeyEventRoutingRule { chord, destination });
         self
     }
 
-    pub fn defaults(&self) -> KeyboardDefaults {
-        self.defaults
+    pub fn route_accelerator(
+        mut self,
+        chord: KeyboardChord,
+        destination: AcceleratorDestination,
+    ) -> Self {
+        self.accelerator_rules
+            .push(AcceleratorRoutingRule { chord, destination });
+        self
     }
 
-    pub fn rules(&self) -> &[KeyboardRoutingRule] {
-        &self.rules
+    pub fn key_event_default(&self) -> KeyEventDestination {
+        self.key_event_default
+    }
+
+    pub fn accelerator_default(&self) -> AcceleratorDestination {
+        self.accelerator_default
+    }
+
+    pub fn key_event_rules(&self) -> &[KeyEventRoutingRule] {
+        &self.key_event_rules
+    }
+
+    pub fn accelerator_rules(&self) -> &[AcceleratorRoutingRule] {
+        &self.accelerator_rules
     }
 
     #[cfg(any(target_os = "macos", test))]
     pub(crate) fn macos_routing(&self) -> wry::KeyboardEventRouting<u16> {
         wry::KeyboardEventRouting {
-            defaults: to_wry_defaults(self.defaults),
-            routes: self
-                .rules
+            key_event_default: to_wry_key_event_destination(self.key_event_default),
+            accelerator_default: to_wry_accelerator_destination(self.accelerator_default),
+            key_event_routes: self
+                .key_event_rules
                 .iter()
                 .filter_map(|rule| {
                     Some(wry::KeyboardEventRoute {
@@ -47,7 +79,20 @@ impl KeyboardRouting {
                             key_code: rule.chord.key.macos_key_code()?,
                             modifiers: rule.chord.modifiers.to_macos_modifiers(),
                         },
-                        destination: to_wry_destination(rule.destination),
+                        destination: to_wry_key_event_destination(rule.destination),
+                    })
+                })
+                .collect(),
+            accelerator_routes: self
+                .accelerator_rules
+                .iter()
+                .filter_map(|rule| {
+                    Some(wry::KeyboardAcceleratorRoute {
+                        chord: wry::KeyboardEventChord {
+                            key_code: rule.chord.key.macos_key_code()?,
+                            modifiers: rule.chord.modifiers.to_macos_modifiers(),
+                        },
+                        destination: to_wry_accelerator_destination(rule.destination),
                     })
                 })
                 .collect(),
@@ -57,9 +102,10 @@ impl KeyboardRouting {
     #[cfg(any(windows, test))]
     pub(crate) fn windows_routing(&self) -> wry::KeyboardEventRouting<u32> {
         wry::KeyboardEventRouting {
-            defaults: to_wry_defaults(self.defaults),
-            routes: self
-                .rules
+            key_event_default: to_wry_key_event_destination(self.key_event_default),
+            accelerator_default: to_wry_accelerator_destination(self.accelerator_default),
+            key_event_routes: self
+                .key_event_rules
                 .iter()
                 .filter_map(|rule| {
                     Some(wry::KeyboardEventRoute {
@@ -67,7 +113,20 @@ impl KeyboardRouting {
                             key_code: rule.chord.key.windows_virtual_key()?,
                             modifiers: rule.chord.modifiers.to_windows_modifiers(),
                         },
-                        destination: to_wry_destination(rule.destination),
+                        destination: to_wry_key_event_destination(rule.destination),
+                    })
+                })
+                .collect(),
+            accelerator_routes: self
+                .accelerator_rules
+                .iter()
+                .filter_map(|rule| {
+                    Some(wry::KeyboardAcceleratorRoute {
+                        chord: wry::KeyboardEventChord {
+                            key_code: rule.chord.key.windows_virtual_key()?,
+                            modifiers: rule.chord.modifiers.to_windows_modifiers(),
+                        },
+                        destination: to_wry_accelerator_destination(rule.destination),
                     })
                 })
                 .collect(),
@@ -76,36 +135,37 @@ impl KeyboardRouting {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KeyboardDefaults {
-    /// Default destination for regular keyDown/keyUp-style events.
-    pub key_events: KeyboardDestination,
-    /// Default destination for platform accelerator/key-equivalent events.
-    pub accelerators: KeyboardDestination,
-}
-
-impl KeyboardDefaults {
-    pub const WEBVIEW: Self = Self {
-        key_events: KeyboardDestination::WebView,
-        accelerators: KeyboardDestination::WebView,
-    };
-
-    pub const PARENT: Self = Self {
-        key_events: KeyboardDestination::Parent,
-        accelerators: KeyboardDestination::Parent,
-    };
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct KeyboardRoutingRule {
-    pub chord: KeyboardChord,
-    pub destination: KeyboardDestination,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyboardDestination {
+pub enum KeyEventDestination {
     WebView,
     Parent,
     WebViewAndParent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AcceleratorDestination {
+    WebView(WebViewAcceleratorDelivery),
+    Parent,
+    WebViewAndParent(WebViewAcceleratorDelivery),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebViewAcceleratorDelivery {
+    /// Preserve the active platform WebView's standard shortcut behavior.
+    PlatformDefault,
+    /// Guarantee delivery through the DOM key event path.
+    KeyEvent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyEventRoutingRule {
+    pub chord: KeyboardChord,
+    pub destination: KeyEventDestination,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AcceleratorRoutingRule {
+    pub chord: KeyboardChord,
+    pub destination: AcceleratorDestination,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -355,19 +415,40 @@ impl KeyboardKey {
 }
 
 #[cfg(any(target_os = "macos", windows, test))]
-fn to_wry_defaults(defaults: KeyboardDefaults) -> wry::KeyboardEventDefaults {
-    wry::KeyboardEventDefaults {
-        key_events: to_wry_destination(defaults.key_events),
-        accelerators: to_wry_destination(defaults.accelerators),
+fn to_wry_key_event_destination(value: KeyEventDestination) -> wry::KeyboardEventDestination {
+    match value {
+        KeyEventDestination::WebView => wry::KeyboardEventDestination::WebView,
+        KeyEventDestination::Parent => wry::KeyboardEventDestination::Parent,
+        KeyEventDestination::WebViewAndParent => wry::KeyboardEventDestination::WebViewAndParent,
     }
 }
 
 #[cfg(any(target_os = "macos", windows, test))]
-fn to_wry_destination(value: KeyboardDestination) -> wry::KeyboardEventDestination {
+fn to_wry_accelerator_destination(
+    value: AcceleratorDestination,
+) -> wry::KeyboardAcceleratorDestination {
     match value {
-        KeyboardDestination::WebView => wry::KeyboardEventDestination::WebView,
-        KeyboardDestination::Parent => wry::KeyboardEventDestination::Parent,
-        KeyboardDestination::WebViewAndParent => wry::KeyboardEventDestination::WebViewAndParent,
+        AcceleratorDestination::WebView(delivery) => {
+            wry::KeyboardAcceleratorDestination::WebView(to_wry_accelerator_delivery(delivery))
+        }
+        AcceleratorDestination::Parent => wry::KeyboardAcceleratorDestination::Parent,
+        AcceleratorDestination::WebViewAndParent(delivery) => {
+            wry::KeyboardAcceleratorDestination::WebViewAndParent(to_wry_accelerator_delivery(
+                delivery,
+            ))
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", windows, test))]
+fn to_wry_accelerator_delivery(
+    value: WebViewAcceleratorDelivery,
+) -> wry::WebViewAcceleratorDelivery {
+    match value {
+        WebViewAcceleratorDelivery::PlatformDefault => {
+            wry::WebViewAcceleratorDelivery::PlatformDefault
+        }
+        WebViewAcceleratorDelivery::KeyEvent => wry::WebViewAcceleratorDelivery::KeyEvent,
     }
 }
 
@@ -398,54 +479,85 @@ pub(crate) fn apply_keyboard_routing(
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyboardChord, KeyboardDefaults, KeyboardDestination, KeyboardKey, KeyboardRouting,
+        AcceleratorDestination, KeyEventDestination, KeyboardChord, KeyboardKey, KeyboardRouting,
+        WebViewAcceleratorDelivery,
     };
 
     #[test]
     fn routes_common_keys_to_platform_codes() {
-        let routing = KeyboardRouting::new(KeyboardDefaults::WEBVIEW)
-            .route(
-                KeyboardChord::new(KeyboardKey::Space),
-                KeyboardDestination::Parent,
-            )
-            .route(
-                KeyboardChord::new(KeyboardKey::Escape),
-                KeyboardDestination::WebViewAndParent,
-            );
+        let routing = KeyboardRouting::new(
+            KeyEventDestination::WebView,
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+        )
+        .route_key_event(
+            KeyboardChord::new(KeyboardKey::Space),
+            KeyEventDestination::Parent,
+        )
+        .route_accelerator(
+            KeyboardChord::new(KeyboardKey::Escape),
+            AcceleratorDestination::WebViewAndParent(WebViewAcceleratorDelivery::KeyEvent),
+        );
 
-        assert_eq!(routing.macos_routing().routes[0].chord.key_code, 49);
-        assert_eq!(routing.windows_routing().routes[0].chord.key_code, 0x20);
         assert_eq!(
-            routing.macos_routing().routes[1].destination,
-            wry::KeyboardEventDestination::WebViewAndParent
+            routing.macos_routing().key_event_routes[0].chord.key_code,
+            49
+        );
+        assert_eq!(
+            routing.windows_routing().key_event_routes[0].chord.key_code,
+            0x20
+        );
+        assert_eq!(
+            routing.macos_routing().accelerator_routes[0].destination,
+            wry::KeyboardAcceleratorDestination::WebViewAndParent(
+                wry::WebViewAcceleratorDelivery::KeyEvent
+            )
         );
     }
 
     #[test]
     fn supports_primary_modifier_mapping() {
-        let routing = KeyboardRouting::new(KeyboardDefaults::WEBVIEW).route(
+        let routing = KeyboardRouting::new(
+            KeyEventDestination::WebView,
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+        )
+        .route_accelerator(
             KeyboardChord::new(KeyboardKey::A).with_primary_modifier(),
-            KeyboardDestination::Parent,
+            AcceleratorDestination::Parent,
         );
 
         let macos = routing.macos_routing();
-        assert!(macos.routes[0].chord.modifiers.meta);
-        assert!(!macos.routes[0].chord.modifiers.control);
+        assert!(macos.accelerator_routes[0].chord.modifiers.meta);
+        assert!(!macos.accelerator_routes[0].chord.modifiers.control);
 
         let windows = routing.windows_routing();
-        assert!(windows.routes[0].chord.modifiers.control);
-        assert!(!windows.routes[0].chord.modifiers.meta);
+        assert!(windows.accelerator_routes[0].chord.modifiers.control);
+        assert!(!windows.accelerator_routes[0].chord.modifiers.meta);
     }
 
     #[test]
-    fn keeps_rules_inspectable() {
-        let routing = KeyboardRouting::new(KeyboardDefaults::WEBVIEW).route(
-            KeyboardChord::new(KeyboardKey::C),
-            KeyboardDestination::Parent,
+    fn keeps_defaults_and_rule_kinds_inspectable() {
+        let routing = KeyboardRouting::new(
+            KeyEventDestination::WebView,
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+        )
+        .route_key_event(
+            KeyboardChord::new(KeyboardKey::Space),
+            KeyEventDestination::Parent,
+        )
+        .route_accelerator(
+            KeyboardChord::new(KeyboardKey::C).with_primary_modifier(),
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::KeyEvent),
         );
 
-        assert_eq!(routing.defaults(), KeyboardDefaults::WEBVIEW);
-        assert_eq!(routing.rules()[0].chord.key(), KeyboardKey::C);
-        assert_eq!(routing.rules()[0].destination, KeyboardDestination::Parent);
+        assert_eq!(routing.key_event_default(), KeyEventDestination::WebView);
+        assert_eq!(
+            routing.accelerator_default(),
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault)
+        );
+        assert_eq!(routing.key_event_rules()[0].chord.key(), KeyboardKey::Space);
+        assert_eq!(
+            routing.accelerator_rules()[0].destination,
+            AcceleratorDestination::WebView(WebViewAcceleratorDelivery::KeyEvent)
+        );
     }
 }

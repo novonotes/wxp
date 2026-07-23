@@ -11,7 +11,8 @@ use windows::{
 
 use crate::webview2::{DefSubclassProc, SetWindowSubclass};
 use crate::{
-  KeyboardEventDestination, KeyboardEventModifiers, KeyboardEventRouting, KeyboardEventRoutingKind,
+  KeyboardAcceleratorDestination, KeyboardEventDestination, KeyboardEventModifiers,
+  KeyboardEventRouting,
 };
 
 const KEYBOARD_ROUTING_SUBCLASS_ID: u32 = WM_USER + 0x67;
@@ -45,18 +46,39 @@ unsafe extern "system" fn subclass_proc(
   match msg {
     WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP => {
       let data = &*(dwrefdata as *const KeyboardRoutingSubclassData);
-      let kind = routing_kind(msg, wparam);
-      let destination = route_destination(&data.routing.borrow(), wparam.0 as u32, kind);
-
-      match destination {
-        KeyboardEventDestination::WebView => {}
-        KeyboardEventDestination::Parent => {
-          // Forward the original message while WebView2 still has the native event. Posting from
-          // JavaScript later cannot trigger plugin-host transport accelerators reliably.
-          return SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+      let modifiers = current_modifiers();
+      if is_accelerator(msg, wparam, modifiers) {
+        let destination = {
+          // Native message dispatch may synchronously re-enter application code and replace the
+          // routing policy, so the RefCell borrow must end before SendMessageW or DefSubclassProc.
+          let routing = data.routing.borrow();
+          route_accelerator(&routing, wparam.0 as u32, modifiers)
+        };
+        match destination {
+          KeyboardAcceleratorDestination::WebView(_) => {}
+          KeyboardAcceleratorDestination::Parent => {
+            // Forward the original message while WebView2 still has the native event. Posting from
+            // JavaScript later cannot trigger plugin-host transport accelerators reliably.
+            return SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+          }
+          KeyboardAcceleratorDestination::WebViewAndParent(_) => {
+            let _ = SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+          }
         }
-        KeyboardEventDestination::WebViewAndParent => {
-          let _ = SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+      } else {
+        let destination = {
+          // Keep the mutable routing API available to synchronous callbacks from native dispatch.
+          let routing = data.routing.borrow();
+          route_key_event(&routing, wparam.0 as u32, modifiers)
+        };
+        match destination {
+          KeyboardEventDestination::WebView => {}
+          KeyboardEventDestination::Parent => {
+            return SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+          }
+          KeyboardEventDestination::WebViewAndParent => {
+            let _ = SendMessageW(data.parent, msg, Some(wparam), Some(lparam));
+          }
         }
       }
     }
@@ -73,32 +95,41 @@ unsafe extern "system" fn subclass_proc(
   DefSubclassProc(hwnd, msg, wparam, lparam)
 }
 
-fn route_destination(
+fn route_key_event(
   routing: &KeyboardEventRouting<u32>,
   virtual_key: u32,
-  kind: KeyboardEventRoutingKind,
+  modifiers: KeyboardEventModifiers,
 ) -> KeyboardEventDestination {
-  let modifiers = current_modifiers();
   routing
-    .routes
+    .key_event_routes
     .iter()
     .find_map(|route| {
       (route.chord.key_code == virtual_key && modifiers_match(route.chord.modifiers, modifiers))
         .then_some(route.destination)
     })
-    .unwrap_or_else(|| routing.defaults.destination_for(kind))
+    .unwrap_or(routing.key_event_default)
 }
 
-fn routing_kind(msg: u32, wparam: WPARAM) -> KeyboardEventRoutingKind {
-  if matches!(msg, WM_SYSKEYDOWN | WM_SYSKEYUP)
-    || current_modifiers().control
-    || current_modifiers().alt
+fn route_accelerator(
+  routing: &KeyboardEventRouting<u32>,
+  virtual_key: u32,
+  modifiers: KeyboardEventModifiers,
+) -> KeyboardAcceleratorDestination {
+  routing
+    .accelerator_routes
+    .iter()
+    .find_map(|route| {
+      (route.chord.key_code == virtual_key && modifiers_match(route.chord.modifiers, modifiers))
+        .then_some(route.destination)
+    })
+    .unwrap_or(routing.accelerator_default)
+}
+
+fn is_accelerator(msg: u32, wparam: WPARAM, modifiers: KeyboardEventModifiers) -> bool {
+  matches!(msg, WM_SYSKEYDOWN | WM_SYSKEYUP)
+    || modifiers.control
+    || modifiers.alt
     || !maps_to_text_key(wparam.0 as u32)
-  {
-    KeyboardEventRoutingKind::Accelerator
-  } else {
-    KeyboardEventRoutingKind::KeyEvent
-  }
 }
 
 fn current_modifiers() -> KeyboardEventModifiers {

@@ -2217,7 +2217,7 @@ pub enum MemoryUsageLevel {
   Low,
 }
 
-/// Destination for native keyboard events intercepted before the WebView consumes them.
+/// Destination for native keyDown/keyUp-style events intercepted before the WebView consumes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyboardEventDestination {
   /// Let the WebView process the key normally.
@@ -2228,36 +2228,44 @@ pub enum KeyboardEventDestination {
   WebViewAndParent,
 }
 
-/// Defaults for keyboard routing paths that do not match an explicit route.
+/// How an accelerator routed to the WebView is delivered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KeyboardEventDefaults {
-  /// Default destination for regular keyDown/keyUp-style events.
-  pub key_events: KeyboardEventDestination,
-  /// Default destination for platform accelerator/key-equivalent events.
-  pub accelerators: KeyboardEventDestination,
+pub enum WebViewAcceleratorDelivery {
+  /// Preserve the platform WebView's standard shortcut behavior.
+  PlatformDefault,
+  /// Deliver the accelerator through the WebView's key event path.
+  KeyEvent,
 }
 
-impl Default for KeyboardEventDefaults {
-  fn default() -> Self {
-    Self {
-      key_events: KeyboardEventDestination::WebView,
-      accelerators: KeyboardEventDestination::WebView,
-    }
-  }
+/// Destination for platform accelerator/key-equivalent events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardAcceleratorDestination {
+  /// Let the WebView process the accelerator using the selected delivery contract.
+  WebView(WebViewAcceleratorDelivery),
+  /// Forward the accelerator to the parent window/view and stop WebView processing.
+  Parent,
+  /// Forward the accelerator to the parent and also deliver it to the WebView.
+  WebViewAndParent(WebViewAcceleratorDelivery),
 }
 
 /// Keyboard routing policy using native key codes for the active backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyboardEventRouting<KeyCode> {
-  pub defaults: KeyboardEventDefaults,
-  pub routes: Vec<KeyboardEventRoute<KeyCode>>,
+  pub key_event_default: KeyboardEventDestination,
+  pub accelerator_default: KeyboardAcceleratorDestination,
+  pub key_event_routes: Vec<KeyboardEventRoute<KeyCode>>,
+  pub accelerator_routes: Vec<KeyboardAcceleratorRoute<KeyCode>>,
 }
 
 impl<KeyCode> Default for KeyboardEventRouting<KeyCode> {
   fn default() -> Self {
     Self {
-      defaults: KeyboardEventDefaults::default(),
-      routes: Vec::new(),
+      key_event_default: KeyboardEventDestination::WebView,
+      accelerator_default: KeyboardAcceleratorDestination::WebView(
+        WebViewAcceleratorDelivery::PlatformDefault,
+      ),
+      key_event_routes: Vec::new(),
+      accelerator_routes: Vec::new(),
     }
   }
 }
@@ -2266,6 +2274,12 @@ impl<KeyCode> Default for KeyboardEventRouting<KeyCode> {
 pub struct KeyboardEventRoute<KeyCode> {
   pub chord: KeyboardEventChord<KeyCode>,
   pub destination: KeyboardEventDestination,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardAcceleratorRoute<KeyCode> {
+  pub chord: KeyboardEventChord<KeyCode>,
+  pub destination: KeyboardAcceleratorDestination,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2285,21 +2299,6 @@ pub struct KeyboardEventModifiers {
   pub alt: bool,
   pub meta: bool,
   pub any: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum KeyboardEventRoutingKind {
-  KeyEvent,
-  Accelerator,
-}
-
-impl KeyboardEventDefaults {
-  pub(crate) fn destination_for(self, kind: KeyboardEventRoutingKind) -> KeyboardEventDestination {
-    match kind {
-      KeyboardEventRoutingKind::KeyEvent => self.key_events,
-      KeyboardEventRoutingKind::Accelerator => self.accelerators,
-    }
-  }
 }
 
 /// Additional methods on `WebView` that are specific to Windows.

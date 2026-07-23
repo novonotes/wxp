@@ -151,29 +151,35 @@ impl WryWebView {
     event: &NSEvent,
     delivery: crate::WebViewAcceleratorDelivery,
   ) {
-    if delivery == crate::WebViewAcceleratorDelivery::PlatformDefault {
-      if let Some(action) = crate::wkwebview::keyboard_routing::standard_editing_action(event) {
-        let mtm = objc2_foundation::MainThreadMarker::new().unwrap();
-        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-        let first_responder = self.window().and_then(|window| window.firstResponder());
-        let handled: bool = unsafe {
-          msg_send![
-            &*app,
-            sendAction: action,
-            to: first_responder.as_deref(),
-            from: self
-          ]
-        };
-        if handled {
-          return;
+    match delivery {
+      crate::WebViewAcceleratorDelivery::PlatformDefault => {
+        if let Some(action) = crate::wkwebview::keyboard_routing::standard_editing_action(event) {
+          let mtm = objc2_foundation::MainThreadMarker::new().unwrap();
+          let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+          let first_responder = self.window().and_then(|window| window.firstResponder());
+          let handled: bool = unsafe {
+            msg_send![
+              &*app,
+              sendAction: action,
+              to: first_responder.as_deref(),
+              from: self
+            ]
+          };
+          if handled {
+            return;
+          }
         }
+
+        // The platform-default contract must retain shortcuts such as undo/redo that WKWebView
+        // implements in performKeyEquivalent. The parent owns this event and suppresses any
+        // responder-chain bounce, so bypassing this class's override cannot re-run routing.
+        let _: Bool = unsafe { msg_send![super(self), performKeyEquivalent: event] };
+      }
+      crate::WebViewAcceleratorDelivery::KeyEvent => {
+        // Application shortcuts opt into the DOM path even when WebKit has a native key equivalent.
+        unsafe { msg_send![super(self), keyDown: event] }
       }
     }
-
-    // Platform-default editing actions and explicit key-event delivery converge here only when the
-    // native action did not handle the accelerator. Calling this class's override would evaluate
-    // routing twice and could deliver WebViewAndParent to the parent twice.
-    unsafe { msg_send![super(self), keyDown: event] }
   }
 
   #[cfg(target_os = "macos")]

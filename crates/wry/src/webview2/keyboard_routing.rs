@@ -47,9 +47,14 @@ unsafe extern "system" fn subclass_proc(
     WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP => {
       let data = &*(dwrefdata as *const KeyboardRoutingSubclassData);
       let modifiers = current_modifiers();
-      let routing = data.routing.borrow();
       if is_accelerator(msg, wparam, modifiers) {
-        match route_accelerator(&routing, wparam.0 as u32, modifiers) {
+        let destination = {
+          // Native message dispatch may synchronously re-enter application code and replace the
+          // routing policy, so the RefCell borrow must end before SendMessageW or DefSubclassProc.
+          let routing = data.routing.borrow();
+          route_accelerator(&routing, wparam.0 as u32, modifiers)
+        };
+        match destination {
           KeyboardAcceleratorDestination::WebView(_) => {}
           KeyboardAcceleratorDestination::Parent => {
             // Forward the original message while WebView2 still has the native event. Posting from
@@ -61,7 +66,12 @@ unsafe extern "system" fn subclass_proc(
           }
         }
       } else {
-        match route_key_event(&routing, wparam.0 as u32, modifiers) {
+        let destination = {
+          // Keep the mutable routing API available to synchronous callbacks from native dispatch.
+          let routing = data.routing.borrow();
+          route_key_event(&routing, wparam.0 as u32, modifiers)
+        };
+        match destination {
           KeyboardEventDestination::WebView => {}
           KeyboardEventDestination::Parent => {
             return SendMessageW(data.parent, msg, Some(wparam), Some(lparam));

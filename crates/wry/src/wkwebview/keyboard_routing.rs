@@ -59,16 +59,22 @@ pub(crate) fn route_accelerator(
 }
 
 pub(crate) fn standard_editing_action(event: &NSEvent) -> Option<Sel> {
-  let modifiers = event.modifierFlags();
-  if modifiers.0 & NSEventModifierFlags::DeviceIndependentFlagsMask.0
-    != NSEventModifierFlags::Command.0
-  {
+  standard_editing_action_for(
+    event.charactersIgnoringModifiers()?.to_string().as_str(),
+    event.modifierFlags(),
+  )
+}
+
+fn standard_editing_action_for(key: &str, modifiers: NSEventModifierFlags) -> Option<Sel> {
+  let relevant_modifiers =
+    modifiers & NSEventModifierFlags::DeviceIndependentFlagsMask & !NSEventModifierFlags::CapsLock;
+  if relevant_modifiers != NSEventModifierFlags::Command {
     return None;
   }
 
   // WebKit's standard editing commands must stay on the responder-action path because forwarding
   // them as keyDown alone does not execute the browser's default select/copy/paste/cut behavior.
-  match event.charactersIgnoringModifiers()?.to_string().as_str() {
+  match key.to_ascii_lowercase().as_str() {
     "a" => Some(objc2::sel!(selectAll:)),
     "c" => Some(objc2::sel!(copy:)),
     "v" => Some(objc2::sel!(paste:)),
@@ -157,5 +163,33 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
   }
   if let Some(window) = webview.window() {
     let _ = window.makeFirstResponder(Some(webview));
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::standard_editing_action_for;
+  use objc2_app_kit::NSEventModifierFlags;
+
+  #[test]
+  fn standard_editing_actions_ignore_caps_lock() {
+    assert_eq!(
+      standard_editing_action_for(
+        "A",
+        NSEventModifierFlags::Command | NSEventModifierFlags::CapsLock,
+      ),
+      Some(objc2::sel!(selectAll:)),
+    );
+  }
+
+  #[test]
+  fn standard_editing_actions_reject_semantic_modifiers() {
+    assert_eq!(
+      standard_editing_action_for(
+        "a",
+        NSEventModifierFlags::Command | NSEventModifierFlags::Shift,
+      ),
+      None,
+    );
   }
 }

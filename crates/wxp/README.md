@@ -50,16 +50,21 @@ other keys available to the frontend. Configure a routing policy on the builder:
 
 ```rust
 use wxp::keyboard::{
-    KeyboardChord, KeyboardDefaults, KeyboardDestination, KeyboardKey, KeyboardRouting,
+    AcceleratorDestination, KeyEventDestination, KeyboardChord, KeyboardKey, KeyboardRouting,
+    WebViewAcceleratorDelivery,
 };
 
-let routing = KeyboardRouting::new(KeyboardDefaults {
-    key_events: KeyboardDestination::WebView,
-    accelerators: KeyboardDestination::WebView,
-})
-.route(
+let routing = KeyboardRouting::new(
+    KeyEventDestination::WebView,
+    AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+)
+.route_key_event(
     KeyboardChord::new(KeyboardKey::Space),
-    KeyboardDestination::Parent,
+    KeyEventDestination::Parent,
+)
+.route_accelerator(
+    KeyboardChord::new(KeyboardKey::A).with_primary_modifier(),
+    AcceleratorDestination::WebView(WebViewAcceleratorDelivery::KeyEvent),
 );
 
 let webview = WxpWebViewBuilder::new(&mut web_context)
@@ -68,12 +73,14 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
     .build_as_child(&window)?;
 ```
 
-`key_events` controls regular keyDown/keyUp-style events. `accelerators` controls platform
+Key-event routes control regular keyDown/keyUp-style events. Accelerator routes control platform
 shortcut paths such as macOS key equivalents or Windows accelerator-style messages.
+`WebViewAcceleratorDelivery::PlatformDefault` preserves standard WebView shortcut behavior, while
+`KeyEvent` guarantees the DOM key event path for application-defined shortcuts.
 Common keys are mapped on supported platforms. Use `KeyboardKey::native` when a host integration
 needs a platform-specific key code that is not covered by the common key list.
-`KeyboardDestination::WebViewAndParent` forwards a matching key to the parent and still lets the
-WebView process it, so use it only when the duplicate action is intentional.
+The `WebViewAndParent` destinations forward a matching key to the parent and still let the WebView
+process it, so use them only when the duplicate action is intentional.
 Call `WxpWebView::set_keyboard_routing` or `WebViewDispatch::post_set_keyboard_routing` to switch
 policies while the WebView is running.
 

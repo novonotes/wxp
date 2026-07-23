@@ -1,5 +1,8 @@
 use crate::initialization::get_initialization_scripts;
-use crate::keyboard::{KeyboardDefaults, KeyboardRouting, apply_keyboard_routing};
+use crate::keyboard::{
+    AcceleratorDestination, KeyEventDestination, KeyboardRouting, WebViewAcceleratorDelivery,
+    apply_keyboard_routing,
+};
 use crate::web_context::WebContext;
 use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
@@ -71,7 +74,10 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: None,
-            keyboard_routing: KeyboardRouting::new(KeyboardDefaults::WEBVIEW),
+            keyboard_routing: KeyboardRouting::new(
+                KeyEventDestination::WebView,
+                AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+            ),
         }
     }
 

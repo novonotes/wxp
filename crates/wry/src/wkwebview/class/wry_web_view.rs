@@ -146,13 +146,34 @@ define_class!(
 // Custom Protocol Task Checker
 impl WryWebView {
   #[cfg(target_os = "macos")]
-  pub(crate) fn perform_webview_key_equivalent(&self, event: &NSEvent) -> Bool {
-    // Child WebViews normally return NO from the override above so AppKit menu shortcuts can
-    // continue through the host. An explicit WebView route is a different contract: bypass the
-    // child override and let WKWebView process the accelerator through performKeyEquivalent
-    // itself. Sending it as keyDown makes WebKit return an unhandled command event to AppKit and
-    // recurse through the wrapper until the main-thread stack overflows.
-    unsafe { msg_send![super(self), performKeyEquivalent: event] }
+  pub(crate) fn perform_webview_accelerator(
+    &self,
+    event: &NSEvent,
+    delivery: crate::WebViewAcceleratorDelivery,
+  ) {
+    if delivery == crate::WebViewAcceleratorDelivery::PlatformDefault {
+      if let Some(action) = crate::wkwebview::keyboard_routing::standard_editing_action(event) {
+        let mtm = objc2_foundation::MainThreadMarker::new().unwrap();
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        let first_responder = self.window().and_then(|window| window.firstResponder());
+        let handled: bool = unsafe {
+          msg_send![
+            &*app,
+            sendAction: action,
+            to: first_responder.as_deref(),
+            from: self
+          ]
+        };
+        if handled {
+          return;
+        }
+      }
+    }
+
+    // Platform-default editing actions and explicit key-event delivery converge here only when the
+    // native action did not handle the accelerator. Calling this class's override would evaluate
+    // routing twice and could deliver WebViewAndParent to the parent twice.
+    unsafe { msg_send![super(self), keyDown: event] }
   }
 
   #[cfg(target_os = "macos")]

@@ -146,6 +146,16 @@ define_class!(
 // Custom Protocol Task Checker
 impl WryWebView {
   #[cfg(target_os = "macos")]
+  pub(crate) fn perform_webview_key_equivalent(&self, event: &NSEvent) -> Bool {
+    // Child WebViews normally return NO from the override above so AppKit menu shortcuts can
+    // continue through the host. An explicit WebView route is a different contract: bypass the
+    // child override and let WKWebView process the accelerator through performKeyEquivalent
+    // itself. Sending it as keyDown makes WebKit return an unhandled command event to AppKit
+    // later, after a synchronous re-entry guard has unwound, and can recurse through the wrapper.
+    unsafe { msg_send![super(self), performKeyEquivalent: event] }
+  }
+
+  #[cfg(target_os = "macos")]
   pub(crate) fn set_keyboard_event_routing(&self, routing: crate::KeyboardEventRouting<u16>) {
     crate::wkwebview::keyboard_routing::set_routing(self, routing);
   }

@@ -70,6 +70,13 @@ define_class!(
     #[cfg(target_os = "macos")]
     #[unsafe(method(performKeyEquivalent:))]
     fn perform_key_equivalent(&self, event: &NSEvent) -> Bool {
+      // WebKit can return an unhandled command event through AppKit before the original
+      // performKeyEquivalent call unwinds. Treat that nested delivery as the already-owned event;
+      // routing it again would alternate between this wrapper and WKWebView until stack overflow.
+      if crate::wkwebview::keyboard_routing::accelerator_forwarding_is_active() {
+        return Bool::YES;
+      }
+
       let embedded_webview = self.ivars().embedded_webview.borrow();
       if let Some(webview) = embedded_webview.as_ref() {
         let destination = crate::wkwebview::keyboard_routing::route_destination(
@@ -81,18 +88,17 @@ define_class!(
         match destination {
           crate::KeyboardEventDestination::WebView => {
             // AppKit sends command-key shortcuts through performKeyEquivalent before keyDown.
-            // Send explicitly-routed WebView shortcuts back through the normal keyDown path so
-            // JavaScript receives the same event shape as non-command keyboard shortcuts.
-            unsafe {
-              let _: () = msg_send![&**webview, keyDown: event];
-            }
+            // Keep explicitly WebView-only accelerators inside WKWebView's accelerator path. The
+            // wrapper owns this routing decision even when WebKit does not consume the shortcut,
+            // otherwise AppKit can send the same native event around the responder chain again.
+            let _guard = crate::wkwebview::keyboard_routing::AcceleratorForwardGuard::enter();
+            webview.perform_webview_key_equivalent(event);
             return Bool::YES;
           }
           crate::KeyboardEventDestination::WebViewAndParent => {
             // This mode intentionally duplicates handling between the WebView and host parent.
-            unsafe {
-              let _: () = msg_send![&**webview, keyDown: event];
-            }
+            let _guard = crate::wkwebview::keyboard_routing::AcceleratorForwardGuard::enter();
+            webview.perform_webview_key_equivalent(event);
           }
           crate::KeyboardEventDestination::Parent => {}
         }

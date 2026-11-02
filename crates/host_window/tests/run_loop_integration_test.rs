@@ -24,7 +24,7 @@ fn main() {
         Ok(_) => println!("✓"),
         Err(e) => {
             println!("✗");
-            error!("Error: {:?}", e);
+            error!("Error: {e:?}");
             failed = true;
         }
     }

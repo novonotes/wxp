@@ -8,14 +8,14 @@ struct WindowClass {
     pub class_name: String,
 }
 
-pub fn to_utf16(s: &str) -> Vec<u16> {
+pub(crate) fn to_utf16(s: &str) -> Vec<u16> {
     let mut string: Vec<u16> = s.encode_utf16().collect();
     string.push(0);
     string
 }
 
 impl WindowClass {
-    pub fn get() -> &'static Self {
+    pub(crate) fn get() -> &'static Self {
         WINDOW_CLASS.get_or_init(Self::new)
     }
 
@@ -110,7 +110,7 @@ struct EventBridge {
     _class: &'static WindowClass,
 }
 
-pub trait WindowAdapter {
+pub(crate) trait WindowAdapter {
     fn wnd_proc(&self, hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT;
 
     fn create_window(&self, title: &str, style: WINDOW_STYLE, ex_style: WINDOW_STYLE) -> HWND

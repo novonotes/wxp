@@ -2,17 +2,27 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, XlibWind
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_ulong};
 use std::ptr;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::thread;
 use x11::xlib::*;
+
+use crate::{HostWindowCallbacks, HostWindowSize};
 
 /// A handle to the development host window, usable as a `raw-window-handle` source.
 ///
 /// The handle may be moved between threads, but Xlib's `Display` connection is
 /// not thread-safe; all calls below must come from the harness thread that owns
 /// it. The `Send`/`Sync` impls only make the handle transportable.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct HostWindowHandle {
     display: *mut Display,
     window: Window,
+    wm_delete_window: Atom,
+    callbacks: Arc<HostWindowCallbacks>,
+    running: Arc<AtomicBool>,
 }
 
 // SAFETY: only the handle is shared. The dev harness serializes all Xlib calls
@@ -29,6 +39,7 @@ impl HostWindowHandle {
     /// Shows the window
     pub fn show(&self) {
         unsafe {
+            self.poll_events();
             XMapWindow(self.display, self.window);
             XFlush(self.display);
         }
@@ -37,6 +48,7 @@ impl HostWindowHandle {
     /// Hides the window
     pub fn hide(&self) {
         unsafe {
+            self.poll_events();
             XUnmapWindow(self.display, self.window);
             XFlush(self.display);
         }
@@ -54,10 +66,84 @@ impl HostWindowHandle {
         }
     }
 
+    /// Returns the window size.
+    pub fn size(&self) -> HostWindowSize {
+        unsafe {
+            self.poll_events();
+            let mut attrs: XWindowAttributes = std::mem::zeroed();
+            if XGetWindowAttributes(self.display, self.window, &mut attrs) != 0 {
+                HostWindowSize {
+                    width: attrs.width.max(0) as u32,
+                    height: attrs.height.max(0) as u32,
+                }
+            } else {
+                HostWindowSize {
+                    width: 0,
+                    height: 0,
+                }
+            }
+        }
+    }
+
+    /// Resizes the X11 window.
+    pub fn set_size(&self, width: u32, height: u32) {
+        unsafe {
+            self.poll_events();
+            XResizeWindow(self.display, self.window, width, height);
+            XFlush(self.display);
+        }
+    }
+
+    /// Processes pending X11 events for this host window.
+    pub fn poll_events(&self) {
+        unsafe {
+            while XPending(self.display) > 0 {
+                let mut event = std::mem::zeroed::<XEvent>();
+                XNextEvent(self.display, &mut event);
+                match event.get_type() {
+                    ClientMessage => {
+                        let client = event.client_message;
+                        if client.window == self.window
+                            && client.data.get_long(0) as Atom == self.wm_delete_window
+                        {
+                            if let Some(on_close) = self.callbacks.on_close.as_ref() {
+                                on_close();
+                            }
+                            XUnmapWindow(self.display, self.window);
+                        }
+                    }
+                    ConfigureNotify => {
+                        let configure = event.configure;
+                        if configure.window == self.window
+                            && let Some(on_resize) = self.callbacks.on_resize.as_ref()
+                        {
+                            let current = HostWindowSize {
+                                width: configure.width.max(0) as u32,
+                                height: configure.height.max(0) as u32,
+                            };
+                            let adjusted = on_resize(current);
+                            if adjusted != current {
+                                XResizeWindow(
+                                    self.display,
+                                    self.window,
+                                    adjusted.width,
+                                    adjusted.height,
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            XFlush(self.display);
+        }
+    }
+
     /// Destroys the window
     pub fn destroy(self) {
         unsafe {
             if !self.display.is_null() && self.window != 0 {
+                self.running.store(false, Ordering::Release);
                 XDestroyWindow(self.display, self.window);
                 XFlush(self.display);
             }
@@ -76,9 +162,14 @@ impl HasWindowHandle for HostWindowHandle {
 }
 
 /// Builds the dev host window.
-pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowHandle {
+pub(crate) fn create_window(
+    title: &str,
+    width: f64,
+    height: f64,
+    callbacks: HostWindowCallbacks,
+) -> HostWindowHandle {
     unsafe {
-        // Open the display
+        XInitThreads();
         let display = XOpenDisplay(ptr::null());
         if display.is_null() {
             panic!("Failed to open X11 display");
@@ -133,7 +224,80 @@ pub(crate) fn create_window(title: &str, width: f64, height: f64) -> HostWindowH
         XMapWindow(display, window);
         XFlush(display);
 
-        HostWindowHandle { display, window }
+        let callbacks = Arc::new(callbacks);
+        let running = Arc::new(AtomicBool::new(true));
+        spawn_event_thread(
+            display,
+            window,
+            wm_delete_window,
+            Arc::clone(&callbacks),
+            Arc::clone(&running),
+        );
+
+        HostWindowHandle {
+            display,
+            window,
+            wm_delete_window,
+            callbacks,
+            running,
+        }
+    }
+}
+
+fn spawn_event_thread(
+    display: *mut Display,
+    window: Window,
+    wm_delete_window: Atom,
+    callbacks: Arc<HostWindowCallbacks>,
+    running: Arc<AtomicBool>,
+) {
+    let display_addr = display as usize;
+    thread::spawn(move || unsafe {
+        let display = display_addr as *mut Display;
+        while running.load(Ordering::Acquire) {
+            let mut event = std::mem::zeroed::<XEvent>();
+            XNextEvent(display, &mut event);
+            handle_x_event(display, window, wm_delete_window, &callbacks, event);
+        }
+    });
+}
+
+unsafe fn handle_x_event(
+    display: *mut Display,
+    window: Window,
+    wm_delete_window: Atom,
+    callbacks: &HostWindowCallbacks,
+    event: XEvent,
+) {
+    unsafe {
+        match event.get_type() {
+            ClientMessage => {
+                let client = event.client_message;
+                if client.window == window && client.data.get_long(0) as Atom == wm_delete_window {
+                    if let Some(on_close) = callbacks.on_close.as_ref() {
+                        on_close();
+                    }
+                    XUnmapWindow(display, window);
+                }
+            }
+            ConfigureNotify => {
+                let configure = event.configure;
+                if configure.window == window
+                    && let Some(on_resize) = callbacks.on_resize.as_ref()
+                {
+                    let current = HostWindowSize {
+                        width: configure.width.max(0) as u32,
+                        height: configure.height.max(0) as u32,
+                    };
+                    let adjusted = on_resize(current);
+                    if adjusted != current {
+                        XResizeWindow(display, window, adjusted.width, adjusted.height);
+                    }
+                }
+            }
+            _ => {}
+        }
+        XFlush(display);
     }
 }
 

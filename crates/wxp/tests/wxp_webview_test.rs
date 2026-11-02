@@ -1,5 +1,8 @@
 use host_window::create_window;
-use novonotes_run_loop::{RunLoop, RunLoopLocal, test_harness};
+use novonotes_run_loop::{RunLoop, RunLoopLocal};
+use run_loop_test_utils::run_gui_tests;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize};
@@ -27,20 +30,17 @@ fn stop_app() {
 }
 
 fn main() {
-    test_harness::run_gui_tests(vec![("basic WebView functionality", test_webview_basic)]);
+    run_gui_tests(vec![("basic WebView functionality", test_webview_basic)]);
 }
 
 fn test_webview_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     schedule_on_run_loop(run_loop, Duration::ZERO, move |run_loop| {
@@ -66,7 +66,7 @@ fn test_webview_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String
         window.show();
 
         // Save resources
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });

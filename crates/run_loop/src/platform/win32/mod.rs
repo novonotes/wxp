@@ -4,7 +4,6 @@ mod sys;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
-    rc::Weak,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -12,23 +11,15 @@ use std::{
 use self::adapter::WindowAdapter;
 use self::sys::windows::*;
 
-pub type HandleType = usize;
-pub const INVALID_HANDLE: HandleType = 0;
+pub(crate) type HandleType = usize;
+pub(crate) const INVALID_HANDLE: HandleType = 0;
 
-/// Lets other components observe the run loop window's raw messages.
-///
-/// Used so e.g. a WebView host can react to Win32 messages delivered to the
-/// loop's hidden window without owning the window procedure itself.
-pub trait MessageListener {
-    fn on_window_message(&self, hwnd: isize, message: u32, w_param: usize, l_param: isize);
-}
-
-pub struct PlatformRunLoop {
+pub(crate) struct PlatformRunLoop {
     state: Box<State>,
 }
 
 impl PlatformRunLoop {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let res = Self {
             state: Box::new(State::new()),
         };
@@ -36,53 +27,45 @@ impl PlatformRunLoop {
         res
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         self.state.unschedule(handle);
     }
 
-    pub fn hwnd(&self) -> isize {
-        self.state.hwnd.get()
-    }
-
-    pub fn register_message_listener(&self, handler: Weak<dyn MessageListener>) {
-        self.state.register_message_listener(handler);
-    }
-
-    pub fn unregister_message_listener(&self, handler: &Weak<dyn MessageListener>) {
-        self.state.unregister_message_listener(handler);
-    }
-
     #[must_use]
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
         self.state.schedule(in_time, callback)
     }
 
-    pub fn run(&self) {
+    pub(crate) fn shutdown(&self) {
+        self.state.shutdown();
+    }
+
+    pub(crate) fn run(&self) {
         self.state.run();
     }
 
     // Windows has no separate "application" object like AppKit; driving the
     // message loop is all there is, so `run_app`/`stop_app` just alias run/stop.
-    pub fn run_app(&self) {
+    pub(crate) fn run_app(&self) {
         self.run();
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.state.stop();
     }
 
-    pub fn stop_app(&self) {
+    pub(crate) fn stop_app(&self) {
         self.stop();
     }
 
-    pub fn poll_once(&self, poll_session: &mut PollSession) {
+    pub(crate) fn poll_once(&self, poll_session: &mut PollSession) {
         self.state.poll_once(poll_session);
     }
 
-    pub fn new_sender(&self) -> PlatformRunLoopSender {
+    pub(crate) fn new_sender(&self) -> PlatformRunLoopSender {
         self.state.new_sender()
     }
 }
@@ -94,6 +77,11 @@ struct Timer {
 
 type SenderCallback = Box<dyn FnOnce() + Send>;
 
+struct SenderState {
+    callbacks: Vec<SenderCallback>,
+    is_shutdown: bool,
+}
+
 // Private stop message. Posting one (instead of just setting a flag) guarantees
 // the blocking `GetMessageW` wakes so the loop can observe the stop request.
 const WM_RUNLOOP_STOP: u32 = WM_USER + 1;
@@ -102,17 +90,16 @@ struct State {
     next_handle: Cell<HandleType>,
     hwnd: Cell<HWND>,
     timers: RefCell<HashMap<HandleType, Timer>>,
+    is_shutdown: Cell<bool>,
 
-    // Callbacks sent from other threads
-    sender_callbacks: Arc<Mutex<Vec<SenderCallback>>>,
+    // Callbacks sent from other threads.
+    sender_state: Arc<Mutex<SenderState>>,
 
     // Indicate that stop has been called
     stopping: Cell<bool>,
-
-    message_listeners: RefCell<Vec<Weak<dyn MessageListener>>>,
 }
 
-pub struct PollSession {
+pub(crate) struct PollSession {
     /// Polling state for `RunLoop::block_on`.
     ///
     /// For the first few milliseconds, poll non-blocking aggressively.
@@ -122,7 +109,7 @@ pub struct PollSession {
 }
 
 impl PollSession {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start: Instant::now(),
             timed_out: false,
@@ -136,9 +123,12 @@ impl State {
             next_handle: Cell::new(INVALID_HANDLE + 1),
             hwnd: Cell::new(0),
             timers: RefCell::new(HashMap::new()),
-            sender_callbacks: Arc::new(Mutex::new(Vec::new())),
+            is_shutdown: Cell::new(false),
+            sender_state: Arc::new(Mutex::new(SenderState {
+                callbacks: Vec::new(),
+                is_shutdown: false,
+            })),
             stopping: Cell::new(false),
-            message_listeners: RefCell::new(Vec::new()),
         }
     }
 
@@ -154,6 +144,10 @@ impl State {
     }
 
     fn wake_up_at(&self, time: Instant) {
+        if self.is_shutdown.get() {
+            return;
+        }
+
         let wait_time = time.saturating_duration_since(Instant::now());
         unsafe {
             SetTimer(self.hwnd.get(), 1, wait_time.as_millis() as u32, None);
@@ -176,10 +170,14 @@ impl State {
         r
     }
 
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
+        if self.is_shutdown.get() {
+            return INVALID_HANDLE;
+        }
+
         let handle = self.next_handle();
 
         self.timers.borrow_mut().insert(
@@ -195,7 +193,11 @@ impl State {
         handle
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
+        if self.is_shutdown.get() {
+            return;
+        }
+
         self.timers.borrow_mut().remove(&handle);
         self.wake_up_at(self.next_timer());
     }
@@ -226,8 +228,8 @@ impl State {
 
     fn process_callbacks(&self) {
         let callbacks: Vec<SenderCallback> = {
-            let mut callbacks = self.sender_callbacks.lock().unwrap();
-            callbacks.drain(0..).collect()
+            let mut state = self.sender_state.lock().unwrap();
+            state.callbacks.drain(0..).collect()
         };
         for c in callbacks {
             c()
@@ -237,7 +239,7 @@ impl State {
     fn new_sender(&self) -> PlatformRunLoopSender {
         PlatformRunLoopSender {
             hwnd: self.hwnd.get(),
-            callbacks: Arc::downgrade(&self.sender_callbacks),
+            state: Arc::downgrade(&self.sender_state),
         }
     }
 
@@ -299,22 +301,36 @@ impl State {
         unsafe { PostMessageW(self.hwnd.get(), WM_RUNLOOP_STOP, 0, 0) };
     }
 
-    fn register_message_listener(&self, handler: Weak<dyn MessageListener>) {
-        self.message_listeners.borrow_mut().push(handler);
-    }
+    fn shutdown(&self) {
+        if self.is_shutdown.replace(true) {
+            return;
+        }
 
-    fn unregister_message_listener(&self, handler: &Weak<dyn MessageListener>) {
-        self.message_listeners
-            .borrow_mut()
-            .retain(|h| !Weak::ptr_eq(h, handler));
+        self.stopping.set(true);
+        // Drop pending Rust callbacks after disarming the HWND timer/window.
+        // Hosts can unload the plugin immediately after RunLoopGuard drops, so
+        // the hidden window must not retain callbacks into this DSO.
+        let timers = std::mem::take(&mut *self.timers.borrow_mut());
+        let callbacks = self
+            .sender_state
+            .lock()
+            .map(|mut state| {
+                state.is_shutdown = true;
+                std::mem::take(&mut state.callbacks)
+            })
+            .unwrap_or_default();
+        unsafe {
+            KillTimer(self.hwnd.get(), 1);
+            DestroyWindow(self.hwnd.get());
+        }
+        self.hwnd.set(0);
+        drop((timers, callbacks));
     }
 }
 
 impl Drop for State {
     fn drop(&mut self) {
-        unsafe {
-            DestroyWindow(self.hwnd.get());
-        }
+        self.shutdown();
     }
 }
 
@@ -332,32 +348,29 @@ impl WindowAdapter for State {
             }
             _ => {}
         }
-        let handlers = self.message_listeners.borrow().clone();
-        for handler in handlers {
-            if let Some(handler) = handler.upgrade() {
-                handler.on_window_message(hwnd, msg, w_param, l_param);
-            }
-        }
         unsafe { DefWindowProcW(hwnd, msg, w_param, l_param) }
     }
 }
 
 #[derive(Clone)]
-pub struct PlatformRunLoopSender {
+pub(crate) struct PlatformRunLoopSender {
     hwnd: HWND,
-    callbacks: std::sync::Weak<Mutex<Vec<SenderCallback>>>,
+    state: std::sync::Weak<Mutex<SenderState>>,
 }
 
 #[allow(unused_variables)]
 impl PlatformRunLoopSender {
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {
-        if let Some(callbacks) = self.callbacks.upgrade() {
+        if let Some(state) = self.state.upgrade() {
             {
-                let mut callbacks = callbacks.lock().unwrap();
-                callbacks.push(Box::new(callback));
+                let mut state = state.lock().unwrap();
+                if state.is_shutdown {
+                    return false;
+                }
+                state.callbacks.push(Box::new(callback));
             }
             unsafe {
                 PostMessageW(self.hwnd, WM_USER, 0, 0);

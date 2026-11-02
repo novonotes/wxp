@@ -17,7 +17,7 @@ use tao::{
 };
 use wxp::WebContext;
 use wxp::dpi::{LogicalPosition, LogicalSize as WxpLogicalSize};
-use wxp::{Channel, Rect, WxpCommandHandler, WxpWebViewBuilder};
+use wxp::{Rect, WxpCommandHandler, WxpWebViewBuilder};
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -108,14 +108,14 @@ fn main() -> wry::Result<()> {
         let proxy = proxy_clone.clone();
         // Extract the JS-created Channel. `Arc` so each deferred sender holds a
         // clone; the JS stream ends when the last clone is dropped.
-        let channel = Arc::new(ctx.arg::<Channel>("channel").unwrap());
+        let channel = Arc::new(ctx.channel("channel").unwrap());
 
         // Async block
         async move {
             // Get the channel ID
             let channel_id = channel.id();
 
-            info!("Received channel ID: {}", channel_id);
+            info!("Received channel ID: {channel_id}");
 
             // The command returns immediately; the actual streaming is driven
             // by the tao loop. Hand the channel off via an EventLoopProxy so
@@ -162,7 +162,7 @@ fn main() -> wry::Result<()> {
             Event::UserEvent(user_event) => {
                 match user_event {
                     UserEvent::StartStreaming(channel_id, channel) => {
-                        info!("Event: Starting streaming to channel {}", channel_id);
+                        info!("Event: Starting streaming to channel {channel_id}");
                         // Send the first message
                         let _ =
                             proxy.send_event(UserEvent::SendNextMessage(channel_id, channel, 0));

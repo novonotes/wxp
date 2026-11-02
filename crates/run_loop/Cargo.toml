@@ -42,5 +42,5 @@ log = { workspace = true }
 serial_test = { workspace = true }
 pollster = "0.4"
 
-[lints.rust]
-unreachable_pub = "allow"
+[lints]
+workspace = true

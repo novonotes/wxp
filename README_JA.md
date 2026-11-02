@@ -27,10 +27,11 @@ wxp を使った完成形のプラグインプロジェクトは [wrac-plugin-te
 | パス | 内容 |
 |-----|------|
 | `crates/run_loop` | wxp とプラグイン UI helper が使う、プラットフォーム独立の run loop |
+| `crates/run_loop_test_utils` | `novonotes_run_loop` 利用コード向けのテスト専用 helper |
 | `crates/run_loop_timer` | `novonotes_run_loop` 上で動く軽量な繰り返し timer helper |
 | `crates/wxp` | WebView UI 基盤（メインクレート） |
 | `crates/wry` | upstream ベースの同梱 wry crate。プラグイン host lifecycle 向け修正を含みます。 |
-| `crates/host_window` | wxp の dev-dependency。外部利用は想定されていません。 |
+| `crates/host_window` | 主に NovoNotes の plugin-host tooling 向けの host window utilities |
 | `packages/webview-bridge` | JS/TS 側 IPC ブリッジ（`@novonotes/webview-bridge`） |
 
 `crates/wry` は `tauri-apps/wry` を追従しつつ、通常のデスクトップアプリとは異なる

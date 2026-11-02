@@ -88,10 +88,10 @@ fn test_task_panic() {
     assert!(err.is_panic());
 
     // Verify the panic message
-    if let JoinError::Panic(payload) = err {
-        if let Some(msg) = payload.downcast_ref::<&str>() {
-            assert_eq!(*msg, "panic inside task");
-        }
+    if let JoinError::Panic(payload) = err
+        && let Some(msg) = payload.downcast_ref::<&str>()
+    {
+        assert_eq!(*msg, "panic inside task");
     }
 }
 

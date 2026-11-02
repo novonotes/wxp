@@ -19,16 +19,11 @@ mod handle;
 mod run_loop;
 mod run_loop_sender;
 mod task;
-#[doc(hidden)]
-pub mod test_harness;
-#[doc(hidden)]
-pub mod test_helper;
 mod thread_id;
 
 pub use handle::Handle;
 pub use run_loop::{Error, Result, RunLoop, RunLoopGuard, RunLoopLocal};
-#[doc(hidden)]
-pub use run_loop_sender::RunLoopSender;
+pub(crate) use run_loop_sender::RunLoopSender;
 pub(crate) use task::Task;
 pub use task::{JoinError, JoinHandle};
 pub(crate) use thread_id::{SystemThreadId, get_system_thread_id};

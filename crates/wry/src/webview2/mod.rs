@@ -599,7 +599,7 @@ impl InnerWebView {
 
   // Uses `log` unconditionally: these failures happen in callbacks with no caller to return an
   // error to, so they must stay visible in release builds.
-  fn log_async_creation_error(context: &str, error: &dyn std::fmt::Debug) {
+  fn log_async_creation_error(context: &str, error: &windows::core::Error) {
     log::error!("WebView2 async {context} creation failed: {error:?}");
   }
 
@@ -640,7 +640,7 @@ impl InnerWebView {
     ) {
       Ok(initialized) => initialized,
       Err(error) => {
-        Self::log_async_creation_error("webview initialization", &error);
+        log::error!("WebView2 initialization failed after controller creation: {error:?}");
         let _ = unsafe { controller.Close() };
         return;
       }
@@ -652,9 +652,15 @@ impl InnerWebView {
     let failure_controller = controller.clone();
     let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
       move |error_code, _| {
+        // Registration leaves a window in which the owner can be dropped and `hwnd` destroyed.
+        if !creation.state.borrow().alive {
+          let _ = unsafe { controller.Close() };
+          return Ok(());
+        }
+
         if let Err(error) = error_code {
           // A page without the IPC bridge cannot talk to the host.
-          Self::log_async_creation_error("initialization script", &error);
+          log::error!("WebView2 initialization script registration failed: {error:?}");
           let _ = unsafe { controller.Close() };
           return Ok(());
         }
@@ -672,12 +678,6 @@ impl InnerWebView {
 
         let (pending_bounds, pending_navigation, visible) = {
           let mut state = creation.state.borrow_mut();
-          if !state.alive {
-            drop(state);
-            let _ = unsafe { controller.Close() };
-            return Ok(());
-          }
-
           state.env = Some(env.clone());
           state.controller = Some(controller.clone());
           state.webview = Some(webview.clone());
@@ -707,7 +707,7 @@ impl InnerWebView {
         // A request made while creation was in flight is newer than the URL given at construction.
         if let Some(navigation) = pending_navigation.or(initial_navigation) {
           if let Err(error) = Self::apply_navigation(&env, &webview, navigation) {
-            Self::log_async_creation_error("navigation", &error);
+            log::error!("WebView2 navigation failed: {error:?}");
           }
         }
 
@@ -724,7 +724,7 @@ impl InnerWebView {
       script_webview.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(init_script), &handler)
     };
     if let Err(error) = result {
-      Self::log_async_creation_error("initialization script", &error);
+      log::error!("WebView2 initialization script registration failed: {error:?}");
       let _ = unsafe { failure_controller.Close() };
     }
   }

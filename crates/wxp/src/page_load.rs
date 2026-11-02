@@ -6,10 +6,12 @@ use wry::PageLoadEvent;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageLoadState {
     /// No content has started loading. Native WebView creation may still be running, because some
-    /// backends continue it asynchronously after the builder has returned.
+    /// backends continue it asynchronously after the builder has returned, or it may have failed.
+    /// A navigation that fails before committing also leaves this state unchanged on macOS.
     NotStarted,
     Started,
-    /// Navigation has ended. This also covers a failed navigation.
+    /// Navigation has ended. Windows and Linux report this for failed navigations too, while macOS
+    /// reports it only on success, so a failed navigation stays in the previous state there.
     Finished,
 }
 

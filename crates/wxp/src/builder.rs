@@ -3,6 +3,7 @@ use crate::keyboard::{
     AcceleratorDestination, KeyEventDestination, KeyboardRouting, WebViewAcceleratorDelivery,
     apply_keyboard_routing,
 };
+use crate::page_load::PageLoadMonitor;
 use crate::web_context::WebContext;
 use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
@@ -385,12 +386,17 @@ impl<'a> WxpWebViewBuilder<'a> {
         // Apply initialization scripts
         let has_command_handler = self.command_handler.is_some();
         let initialization_script = get_initialization_scripts(has_command_handler);
+        let page_load = PageLoadMonitor::new();
         let builder = self
             .builder
-            .with_initialization_script(&initialization_script);
+            .with_initialization_script(&initialization_script)
+            .with_on_page_load_handler({
+                let page_load = page_load.clone();
+                move |event, _url| page_load.record(event)
+            });
 
         let webview = builder.build_as_child(window)?;
-        let webview = WxpWebView::new(webview)?;
+        let webview = WxpWebView::new(webview, page_load)?;
         apply_keyboard_routing(&webview, self.keyboard_routing)?;
         let dispatch = webview.dispatch();
 

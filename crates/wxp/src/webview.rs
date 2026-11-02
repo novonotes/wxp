@@ -7,6 +7,7 @@ use std::sync::{Arc, Weak};
 use wry::WebView;
 
 use crate::keyboard::KeyboardRouting;
+use crate::page_load::PageLoadMonitor;
 use crate::{Error, Rect, Result};
 
 /// UI-thread owner of a native WebView.
@@ -17,6 +18,7 @@ pub struct WxpWebView {
     // The native WebView still lives behind SendWrapper because WebViewDispatch must be able to
     // carry a weak handle across threads. Direct access remains confined to this module.
     inner: Arc<SendWrapper<RefCell<WebView>>>,
+    page_load: PageLoadMonitor,
     // Keep the process-wide run loop bound while the native WebView exists. Field order is
     // intentional: `inner` must be dropped before this guard releases the run loop binding.
     _run_loop_guard: RunLoopGuard,
@@ -87,16 +89,22 @@ impl std::fmt::Debug for WebViewDispatch {
 
 impl WxpWebView {
     /// Creates a new WebView owner.
-    pub(crate) fn new(webview: WebView) -> Result<Self> {
+    pub(crate) fn new(webview: WebView, page_load: PageLoadMonitor) -> Result<Self> {
         if !RunLoop::is_run_loop_thread() {
             return Err(Error::RunLoopNotInitialized);
         }
         let run_loop_guard = RunLoop::init().map_err(|_| Error::RunLoopNotInitialized)?;
         Ok(Self {
             inner: Arc::new(SendWrapper::new(RefCell::new(webview))),
+            page_load,
             _run_loop_guard: run_loop_guard,
             _not_send_sync: PhantomData,
         })
+    }
+
+    /// Returns a handle for reading how far the page has loaded.
+    pub fn page_load_monitor(&self) -> PageLoadMonitor {
+        self.page_load.clone()
     }
 
     /// Returns a thread-safe dispatch handle for this WebView.

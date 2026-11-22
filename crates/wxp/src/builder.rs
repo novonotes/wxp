@@ -11,7 +11,7 @@ use crate::wxp_command::{WxpCommandHandler, setup::setup_invoke_handler_internal
 use crate::wxp_webview::error::{Error, Result};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wry::{WebViewBuilder, http::Response};
@@ -140,19 +140,13 @@ impl<'a> WxpWebViewBuilder<'a> {
                 }
 
                 match std::fs::read(&file_path) {
-                    Ok(content) => {
-                        let mime_type = mime_guess::from_path(&file_path)
-                            .first_or_octet_stream()
-                            .to_string();
-
-                        Response::builder()
-                            .header("Content-Type", mime_type)
-                            .header("Access-Control-Allow-Origin", "*")
-                            .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-                            .header("Access-Control-Allow-Headers", "*")
-                            .body(content.into())
-                            .unwrap()
-                    }
+                    Ok(content) => Response::builder()
+                        .header("Content-Type", asset_content_type(&file_path))
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                        .header("Access-Control-Allow-Headers", "*")
+                        .body(content.into())
+                        .unwrap(),
                     Err(_) => Response::builder()
                         .status(404)
                         .header("Content-Type", "text/plain")
@@ -263,12 +257,8 @@ impl<'a> WxpWebViewBuilder<'a> {
                                 .unwrap();
                         };
 
-                        let mime_type = mime_guess::from_path(&file_path)
-                            .first_or_octet_stream()
-                            .to_string();
-
                         Response::builder()
-                            .header("Content-Type", mime_type)
+                            .header("Content-Type", asset_content_type(&file_path))
                             .header("Access-Control-Allow-Origin", "*")
                             .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                             .header("Access-Control-Allow-Headers", "*")
@@ -407,5 +397,59 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
 
         Ok(webview)
+    }
+}
+
+/// Returns the `Content-Type` for a served GUI asset, declaring UTF-8 for text formats.
+///
+/// Older WebKit (Safari 16 and earlier) decodes a script served without a `charset`
+/// using the document encoding, even for module scripts. When the page does not declare
+/// one either, that falls back to the user's locale encoding (e.g. Shift_JIS), so any
+/// non-ASCII text in a UTF-8 bundle can turn into a syntax error and the whole GUI fails
+/// to start. Declaring the charset on the response makes decoding independent of the page
+/// and the user's locale. Assets are assumed to be UTF-8, which is what web bundlers emit.
+fn asset_content_type(path: &Path) -> String {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let is_text = mime.type_() == mime_guess::mime::TEXT
+        || matches!(mime.subtype().as_str(), "javascript" | "json" | "xml")
+        || matches!(
+            mime.suffix().map(|suffix| suffix.as_str()),
+            Some("json" | "xml")
+        );
+    if is_text {
+        format!("{}; charset=utf-8", mime.essence_str())
+    } else {
+        mime.essence_str().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asset_content_type;
+    use std::path::Path;
+
+    #[test]
+    fn text_assets_declare_utf8() {
+        for (file, expected) in [
+            ("index.html", "text/html; charset=utf-8"),
+            ("assets/index.js", "text/javascript; charset=utf-8"),
+            ("assets/index.css", "text/css; charset=utf-8"),
+            ("data.json", "application/json; charset=utf-8"),
+            ("icon.svg", "image/svg+xml; charset=utf-8"),
+        ] {
+            assert_eq!(asset_content_type(Path::new(file)), expected, "{file}");
+        }
+    }
+
+    #[test]
+    fn binary_assets_have_no_charset() {
+        for (file, expected) in [
+            ("image.png", "image/png"),
+            ("font.woff2", "font/woff2"),
+            ("module.wasm", "application/wasm"),
+            ("unknown.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(asset_content_type(Path::new(file)), expected, "{file}");
+        }
     }
 }

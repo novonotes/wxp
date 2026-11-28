@@ -1587,30 +1587,29 @@ impl InnerWebView {
         if wparam.0 != SIZE_MINIMIZED as usize {
           let controller = dwrefdata as *mut ICoreWebView2Controller;
 
-          // Keep the bounds read and the writes below in the same coordinate space.
+          // Keep the bounds read and the writes below in the same coordinate space. The guard is
+          // scoped to this block so it is restored before `DefSubclassProc` runs below.
           let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
-          let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
-            return DefSubclassProc(hwnd, msg, wparam, lparam);
-          };
+          if let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) {
+            let _ = (*controller).SetBounds(RECT {
+              left: 0,
+              top: 0,
+              right: width,
+              bottom: height,
+            });
 
-          let _ = (*controller).SetBounds(RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-          });
-
-          let mut hwnd = HWND::default();
-          if (*controller).ParentWindow(&mut hwnd).is_ok() {
-            let _ = SetWindowPos(
-              hwnd,
-              None,
-              0,
-              0,
-              width,
-              height,
-              SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
-            );
+            let mut hwnd = HWND::default();
+            if (*controller).ParentWindow(&mut hwnd).is_ok() {
+              let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                width,
+                height,
+                SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
+              );
+            }
           }
         }
       }

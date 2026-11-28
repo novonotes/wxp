@@ -84,13 +84,15 @@ impl WindowDpiContextGuard {
       // Before Windows 10 1607 the awareness is per process, so there is nothing to align.
       return Self { previous: None };
     };
+    // Both functions report failure only as NULL. `DPI_AWARENESS_CONTEXT::is_invalid()` also
+    // rejects -1, which is the valid `DPI_AWARENESS_CONTEXT_UNAWARE`, so check for NULL directly.
     let context = unsafe { GetWindowDpiAwarenessContext(hwnd) };
-    if context.is_invalid() {
+    if context.0.is_null() {
       return Self { previous: None };
     }
     let previous = unsafe { SetThreadDpiAwarenessContext(context) };
     Self {
-      previous: (!previous.is_invalid()).then_some(previous),
+      previous: (!previous.0.is_null()).then_some(previous),
     }
   }
 }

@@ -15,12 +15,12 @@ struct State<T> {
     data: Option<T>,
 }
 
-pub struct FutureCompleter<T> {
+pub(crate) struct FutureCompleter<T> {
     state: Rc<RefCell<State<T>>>,
 }
 
 impl<T> FutureCompleter<T> {
-    pub fn new() -> (CompletableFuture<T>, FutureCompleter<T>) {
+    pub(crate) fn new() -> (CompletableFuture<T>, FutureCompleter<T>) {
         let state = Rc::new(RefCell::new(State {
             waker: None,
             data: None,
@@ -33,7 +33,7 @@ impl<T> FutureCompleter<T> {
         )
     }
 
-    pub fn complete(self, data: T) {
+    pub(crate) fn complete(self, data: T) {
         let waker = {
             let mut state = self.state.borrow_mut();
             state.data.replace(data);
@@ -45,7 +45,7 @@ impl<T> FutureCompleter<T> {
     }
 }
 
-pub struct CompletableFuture<T> {
+pub(crate) struct CompletableFuture<T> {
     state: Rc<RefCell<State<T>>>,
 }
 

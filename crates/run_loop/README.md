@@ -102,6 +102,8 @@ fn main() {
 
 `init()` marks the current thread as the run loop thread and acquires a reference to the native loop infrastructure on that thread (creating one if none exists). In standalone applications, call it on the thread that will drive the application UI/run loop, then call `run()` yourself to drive the loop.
 
+The thread binding is active only while at least one `RunLoopGuard` is alive. Dropping the final guard shuts the run loop down and clears the binding, so a later `init()` may bind a new run loop on another thread.
+
 In plugin environments, call `init()` from the host main/UI thread that will receive GUI callbacks. Do not call it from CLAP `clap_entry.init`: that entry point initializes the DSO, should be fast, and may be called from a scanning or worker thread. The host already drives the native loop in plugin environments, so `run()` is unnecessary. Callbacks and timer registrations behave identically regardless of who drives the loop.
 
 | Pattern               | `run()` | Who drives the loop       |
@@ -117,8 +119,8 @@ In plugin environments, call `init()` from the host main/UI thread that will rec
 
 ## Testing
 
-run_loop provides helpers and a test harness for testing code that uses it.
-For usage details, see the [Testing Guide](docs/testing.md).
+The companion `run_loop_test_utils` crate provides helpers and a GUI harness for testing code that uses run_loop.
+For usage details, see the [`run_loop_test_utils` README](../run_loop_test_utils/README.md).
 
 ## Project Status
 

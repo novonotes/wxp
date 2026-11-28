@@ -4,7 +4,7 @@
 //! specific OS, so each backend must expose the same surface (`PlatformRunLoop`,
 //! `PlatformRunLoopSender`, `PollSession`, thread-id helpers).
 
-pub use self::platform_impl::*;
+pub(crate) use self::platform_impl::*;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "darwin/mod.rs"]

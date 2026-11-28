@@ -12,6 +12,8 @@
 
 mod builder;
 mod initialization;
+pub mod keyboard;
+mod page_load;
 mod web_context;
 mod webview;
 mod wxp_channel;
@@ -23,11 +25,10 @@ mod wxp_webview;
 // --------------------------------------------------
 
 pub use builder::WxpWebViewBuilder;
+pub use page_load::{PageLoadMonitor, PageLoadState};
 pub use web_context::WebContext;
 pub use webview::{WebViewDispatch, WxpWebView};
 pub use wxp_channel::Channel;
-#[doc(hidden)]
-pub use wxp_command::TryFromDeserializeContext;
 pub use wxp_command::{CommandContext, WxpCommandHandler};
 pub use wxp_webview::error::{Error, Result};
 

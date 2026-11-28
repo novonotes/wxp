@@ -27,10 +27,11 @@ See the [crates/wxp README](./crates/wxp/README.md) for a detailed walkthrough o
 | Path | Description |
 |-----|------|
 | `crates/run_loop` | Platform-independent run loop used by wxp and plugin UI helpers |
+| `crates/run_loop_test_utils` | Test-only helpers for code that uses `novonotes_run_loop` |
 | `crates/run_loop_timer` | Lightweight repeating timer helper built on `novonotes_run_loop` |
 | `crates/wxp` | WebView UI foundation (main crate) |
 | `crates/wry` | Embedded upstream-based wry crate with plugin-host lifecycle fixes |
-| `crates/host_window` | Dev dependency for wxp. Not intended for external use. |
+| `crates/host_window` | Host window utilities, primarily for NovoNotes plugin-host tooling |
 | `packages/webview-bridge` | JS/TS IPC bridge (`@novonotes/webview-bridge`) |
 
 `crates/wry` tracks `tauri-apps/wry` but keeps small intent-based patches for audio plug-in hosts,

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 mod drag_drop;
+mod keyboard_routing;
 mod util;
 
 use std::{
@@ -59,7 +60,9 @@ static WINDOW_CLASS_NAME: OnceCell<HSTRING> = OnceCell::new();
 // ready handles. Consequences that ripple through this file: the public
 // `controller()/environment()/webview()` return `Option`, and operations
 // issued before creation finishes are buffered (`pending_bounds`,
-// `pending_navigation`) and replayed in `finish_create_controller`.
+// `pending_navigation`) and replayed in `finish_create_controller` once the
+// initialization script has registered: WebView2 does not guarantee a script
+// is ready to run until its completion handler has finished.
 thread_local! {
   // Creations are also serialized one-at-a-time per thread: starting several at
   // once confuses WebView2's temporary native child-window association. Each
@@ -116,6 +119,8 @@ struct WebViewState {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
+  keyboard_event_routing: Rc<RefCell<crate::KeyboardEventRouting<u32>>>,
+  keyboard_routing_installed: bool,
 }
 
 enum PendingNavigation {
@@ -232,6 +237,8 @@ impl InnerWebView {
       pending_bounds: None,
       pending_navigation: None,
       drag_drop_controller: None,
+      keyboard_event_routing: Default::default(),
+      keyboard_routing_installed: false,
     }));
 
     Self::begin_create_environment(PendingWebViewCreation {
@@ -322,6 +329,9 @@ impl InnerWebView {
     let dpi = unsafe { util::hwnd_dpi(parent) };
     let scale_factor = util::dpi_to_scale_factor(dpi);
 
+    // Creation can run from a deferred task outside the host's DPI scope. The coordinates below
+    // are in the parent's coordinate space, so create the container in the parent's context.
+    let _dpi_context = util::WindowDpiContextGuard::enter(parent);
     let (x, y, width, height) = if is_child {
       let (x, y) = attributes
         .bounds
@@ -469,6 +479,7 @@ impl InnerWebView {
               return Ok(());
             };
 
+            log::info!("WebView2 environment created");
             Self::begin_create_controller(environment, creation);
             Ok(())
           },
@@ -508,6 +519,7 @@ impl InnerWebView {
             return Ok(());
           };
 
+          log::info!("WebView2 controller created");
           Self::finish_create_controller(env_for_callback.clone(), controller, creation);
           Ok(())
         },
@@ -588,12 +600,10 @@ impl InnerWebView {
     }
   }
 
+  // Uses `log` unconditionally: these failures happen in callbacks with no caller to return an
+  // error to, so they must stay visible in release builds.
   fn log_async_creation_error(context: &str, error: &windows::core::Error) {
-    let _ = (context, error);
-    #[cfg(feature = "tracing")]
-    tracing::error!("WebView2 async {context} creation failed: {error:?}");
-    #[cfg(debug_assertions)]
-    eprintln!("WebView2 async {context} creation failed: {error:?}");
+    log::error!("WebView2 async {context} creation failed: {error:?}");
   }
 
   fn finish_create_controller(
@@ -608,7 +618,20 @@ impl InnerWebView {
 
     creation.attributes.visible = creation.state.borrow().visible;
 
-    let webview = match Self::init_webview(
+    // One registration gives one completion to continue from. The separator keeps a script ending
+    // in a line comment or without a semicolon from swallowing the next one.
+    let init_script = std::iter::once(String::from(
+      r#"Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: s=> window.chrome.webview.postMessage(s) }) });"#,
+    ))
+    .chain(
+      std::mem::take(&mut creation.attributes.initialization_scripts)
+        .into_iter()
+        .map(|init_script| init_script.script),
+    )
+    .collect::<Vec<_>>()
+    .join("\n;\n");
+
+    let (webview, initial_navigation) = match Self::init_webview(
       creation.parent,
       creation.hwnd,
       creation.webview_id,
@@ -618,64 +641,94 @@ impl InnerWebView {
       creation.pl_attrs,
       creation.is_child,
     ) {
-      Ok(webview) => webview,
+      Ok(initialized) => initialized,
       Err(error) => {
-        let _ = &error;
-        #[cfg(feature = "tracing")]
-        tracing::error!("WebView2 initialization failed after controller creation: {error:?}");
-        #[cfg(debug_assertions)]
-        eprintln!("WebView2 initialization failed after controller creation: {error:?}");
+        log::error!("WebView2 initialization failed after controller creation: {error:?}");
         let _ = unsafe { controller.Close() };
         return;
       }
     };
 
-    let drag_drop_controller = creation.drop_handler.map(|handler| {
-      // Disable file drops, so our handler can capture it
-      unsafe {
-        let _ = controller
-          .cast::<ICoreWebView2Controller4>()
-          .and_then(|c| c.SetAllowExternalDrop(false));
-      }
-      DragDropController::new(creation.hwnd, handler)
-    });
+    // The handles stay unpublished until registration finishes, so a navigation requested in the
+    // meantime is buffered in `pending_navigation` like any other pre-creation request.
+    let script_webview = webview.clone();
+    let failure_controller = controller.clone();
+    let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
+      move |error_code, _| {
+        // Registration leaves a window in which the owner can be dropped and `hwnd` destroyed.
+        if !creation.state.borrow().alive {
+          let _ = unsafe { controller.Close() };
+          return Ok(());
+        }
 
-    let (pending_bounds, pending_navigation, visible) = {
-      let mut state = creation.state.borrow_mut();
-      if !state.alive {
-        drop(state);
-        let _ = unsafe { controller.Close() };
-        return;
-      }
+        if let Err(error) = error_code {
+          // A page without the IPC bridge cannot talk to the host.
+          log::error!("WebView2 initialization script registration failed: {error:?}");
+          let _ = unsafe { controller.Close() };
+          return Ok(());
+        }
+        log::info!("WebView2 initialization script registered");
 
-      state.env = Some(env.clone());
-      state.controller = Some(controller.clone());
-      state.webview = Some(webview.clone());
-      state.drag_drop_controller = drag_drop_controller;
-      (
-        state.pending_bounds.take(),
-        state.pending_navigation.take(),
-        state.visible,
-      )
+        let drag_drop_controller = creation.drop_handler.map(|handler| {
+          // Disable file drops, so our handler can capture it
+          unsafe {
+            let _ = controller
+              .cast::<ICoreWebView2Controller4>()
+              .and_then(|c| c.SetAllowExternalDrop(false));
+          }
+          DragDropController::new(creation.hwnd, handler)
+        });
+
+        let (pending_bounds, pending_navigation, visible) = {
+          let mut state = creation.state.borrow_mut();
+          state.env = Some(env.clone());
+          state.controller = Some(controller.clone());
+          state.webview = Some(webview.clone());
+          state.drag_drop_controller = drag_drop_controller;
+          (
+            state.pending_bounds.take(),
+            state.pending_navigation.take(),
+            state.visible,
+          )
+        };
+
+        unsafe {
+          let _ = ShowWindow(
+            creation.hwnd,
+            match visible {
+              true => SW_SHOW,
+              false => SW_HIDE,
+            },
+          );
+          let _ = controller.SetIsVisible(visible);
+        }
+
+        if let Some((size, position)) = pending_bounds {
+          let _ = Self::apply_bounds(creation.hwnd, &controller, size, position);
+        }
+
+        // A request made while creation was in flight is newer than the URL given at construction.
+        if let Some(navigation) = pending_navigation.or(initial_navigation) {
+          if let Err(error) = Self::apply_navigation(&env, &webview, navigation) {
+            log::error!("WebView2 navigation failed: {error:?}");
+          }
+        }
+
+        let keyboard_event_routing = creation.state.borrow().keyboard_event_routing.clone();
+        unsafe {
+          keyboard_routing::install(creation.parent, creation.hwnd, keyboard_event_routing);
+        }
+        creation.state.borrow_mut().keyboard_routing_installed = true;
+        Ok(())
+      },
+    ));
+
+    let result = unsafe {
+      script_webview.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(init_script), &handler)
     };
-
-    unsafe {
-      let _ = ShowWindow(
-        creation.hwnd,
-        match visible {
-          true => SW_SHOW,
-          false => SW_HIDE,
-        },
-      );
-      let _ = controller.SetIsVisible(visible);
-    }
-
-    if let Some((size, position)) = pending_bounds {
-      let _ = Self::apply_bounds(creation.hwnd, &controller, size, position);
-    }
-
-    if let Some(navigation) = pending_navigation {
-      let _ = Self::apply_navigation(&env, &webview, navigation);
+    if let Err(error) = result {
+      log::error!("WebView2 initialization script registration failed: {error:?}");
+      let _ = unsafe { failure_controller.Close() };
     }
   }
 
@@ -685,6 +738,9 @@ impl InnerWebView {
     size: PhysicalSize<i32>,
     position: PhysicalPosition<i32>,
   ) -> Result<()> {
+    // The controller completion callback can run outside the host's DPI scope; see
+    // `WindowDpiContextGuard`.
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     unsafe {
       controller.SetBounds(RECT {
         top: 0,
@@ -738,7 +794,7 @@ impl InnerWebView {
     controller: &ICoreWebView2Controller,
     pl_attrs: super::PlatformSpecificWebViewAttributes,
     is_child: bool,
-  ) -> Result<ICoreWebView2> {
+  ) -> Result<(ICoreWebView2, Option<PendingNavigation>)> {
     let webview = unsafe { controller.CoreWebView2()? };
 
     // Theme
@@ -802,11 +858,6 @@ impl InnerWebView {
       };
     }
 
-    // Initialize main and subframe scripts
-    for init_script in attributes.initialization_scripts {
-      Self::add_script_to_execute_on_document_created(&webview, init_script.script)?;
-    }
-
     // Enable clipboard
     if attributes.clipboard {
       unsafe {
@@ -828,7 +879,7 @@ impl InnerWebView {
     }
 
     // Navigation
-    if let Some(mut url) = attributes.url {
+    let initial_navigation = if let Some(mut url) = attributes.url {
       if let Some((protocol, _)) = url.split_once("://") {
         if custom_protocols.contains(protocol) {
           // WebView2 supports non-standard protocols only on Windows 10+, so we have to use this workaround
@@ -837,16 +888,13 @@ impl InnerWebView {
         }
       }
 
-      if let Some(headers) = attributes.headers {
-        load_url_with_headers(&webview, env, &url, headers)?;
-      } else {
-        let url = HSTRING::from(url);
-        unsafe { webview.Navigate(&url)? };
-      }
-    } else if let Some(html) = attributes.html {
-      let html = HSTRING::from(html);
-      unsafe { webview.NavigateToString(&html)? };
-    }
+      Some(match attributes.headers {
+        Some(headers) => PendingNavigation::UrlWithHeaders(url, headers),
+        None => PendingNavigation::Url(url),
+      })
+    } else {
+      attributes.html.map(PendingNavigation::Html)
+    };
 
     // Subclass parent for resizing and focus
     if !is_child {
@@ -877,7 +925,7 @@ impl InnerWebView {
       }
     }
 
-    Ok(webview)
+    Ok((webview, initial_navigation))
   }
 
   #[inline]
@@ -1199,13 +1247,6 @@ impl InnerWebView {
     attributes: &mut WebViewAttributes,
     token: &mut EventRegistrationToken,
   ) -> Result<()> {
-    Self::add_script_to_execute_on_document_created(
-      webview,
-      String::from(
-        r#"Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: s=> window.chrome.webview.postMessage(s) }) });"#,
-      ),
-    )?;
-
     let ipc_handler = attributes.ipc_handler.take();
     webview.add_WebMessageReceived(
       &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
@@ -1524,6 +1565,7 @@ impl InnerWebView {
   }
 
   fn parent_bounds(hwnd: HWND) -> Result<PhysicalSize<i32>> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     let mut client_rect = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client_rect)? };
     Ok(PhysicalSize::new(
@@ -1545,28 +1587,29 @@ impl InnerWebView {
         if wparam.0 != SIZE_MINIMIZED as usize {
           let controller = dwrefdata as *mut ICoreWebView2Controller;
 
-          let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
-            return DefSubclassProc(hwnd, msg, wparam, lparam);
-          };
+          // Keep the bounds read and the writes below in the same coordinate space. The guard is
+          // scoped to this block so it is restored before `DefSubclassProc` runs below.
+          let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
+          if let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) {
+            let _ = (*controller).SetBounds(RECT {
+              left: 0,
+              top: 0,
+              right: width,
+              bottom: height,
+            });
 
-          let _ = (*controller).SetBounds(RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-          });
-
-          let mut hwnd = HWND::default();
-          if (*controller).ParentWindow(&mut hwnd).is_ok() {
-            let _ = SetWindowPos(
-              hwnd,
-              None,
-              0,
-              0,
-              width,
-              height,
-              SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
-            );
+            let mut hwnd = HWND::default();
+            if (*controller).ParentWindow(&mut hwnd).is_ok() {
+              let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                width,
+                height,
+                SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
+              );
+            }
           }
         }
       }
@@ -1620,22 +1663,6 @@ impl InnerWebView {
       Some(Self::parent_subclass_proc),
       PARENT_SUBCLASS_ID as _,
     );
-  }
-
-  #[inline]
-  fn add_script_to_execute_on_document_created(webview: &ICoreWebView2, js: String) -> Result<()> {
-    // This registration is async but does not need to synchronously complete before the WebView is
-    // returned. Waiting here would reintroduce the nested-pump path that crashes some plug-in hosts.
-    unsafe {
-      webview.AddScriptToExecuteOnDocumentCreated(
-        &HSTRING::from(js),
-        &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|error_code, _| {
-          error_code
-        })),
-      )?;
-    }
-
-    Ok(())
   }
 
   #[inline]
@@ -1710,6 +1737,30 @@ impl InnerWebView {
 
   pub fn webview(&self) -> Option<ICoreWebView2> {
     self.state.borrow().webview.clone()
+  }
+
+  pub fn set_keyboard_event_routing(
+    &self,
+    routing: crate::KeyboardEventRouting<u32>,
+  ) -> Result<()> {
+    let should_install = {
+      let state = self.state.borrow_mut();
+      *state.keyboard_event_routing.borrow_mut() = routing;
+      state.webview.is_some() && !state.keyboard_routing_installed
+    };
+
+    if should_install {
+      unsafe {
+        keyboard_routing::install(
+          *self.parent.borrow(),
+          self.hwnd,
+          self.state.borrow().keyboard_event_routing.clone(),
+        );
+      }
+      self.state.borrow_mut().keyboard_routing_installed = true;
+    }
+
+    Ok(())
   }
 
   pub fn eval(
@@ -1789,6 +1840,7 @@ impl InnerWebView {
   }
 
   pub fn bounds(&self) -> Result<Rect> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     let mut bounds = Rect::default();
     let mut rect = RECT::default();
     if self.is_child {
@@ -1820,6 +1872,8 @@ impl InnerWebView {
     if let Some(controller) = self.state.borrow().controller.clone() {
       return Self::apply_bounds(self.hwnd, &controller, size, position);
     }
+
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
 
     // Some DAWs resize the embedded editor immediately after construction. Move the container HWND
     // now so host layout is correct, then apply WebView2 bounds once the controller exists.

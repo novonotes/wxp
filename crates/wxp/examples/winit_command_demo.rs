@@ -101,11 +101,8 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
-            _ => {}
+        if event == WindowEvent::CloseRequested {
+            event_loop.exit();
         }
     }
 }

@@ -45,6 +45,7 @@ jobs:
           cargo fmt \
             --package host_window \
             --package novonotes_run_loop \
+            --package run_loop_test_utils \
             --package run_loop_timer \
             --package wxp \
             -- --check

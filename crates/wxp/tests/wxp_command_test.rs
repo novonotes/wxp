@@ -1,7 +1,9 @@
 use host_window::create_window;
 use log::error;
-use novonotes_run_loop::{RunLoop, RunLoopLocal, test_harness};
+use novonotes_run_loop::{RunLoop, RunLoopLocal};
+use run_loop_test_utils::run_gui_tests;
 use serde_json::json;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,7 +35,7 @@ fn stop_app() {
 }
 
 fn main() {
-    test_harness::run_gui_tests(vec![
+    run_gui_tests(vec![
         (
             "basic command invocation",
             test_command_basic as fn(&RunLoopLocal) -> std::result::Result<(), String>,
@@ -46,15 +48,13 @@ fn main() {
 }
 
 fn test_command_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let test_passed = Arc::new(AtomicBool::new(false));
@@ -131,7 +131,7 @@ fn test_command_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });
@@ -153,15 +153,13 @@ fn test_command_basic(run_loop: &RunLoopLocal) -> std::result::Result<(), String
 }
 
 fn test_command_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String> {
-    use parking_lot::Mutex;
-
     // Struct to hold resources
     struct Resources {
         _window: host_window::HostWindowHandle,
         _webview: wxp::WxpWebView,
     }
 
-    let resources = Arc::new(Mutex::new(None));
+    let resources = Rc::new(RefCell::new(None));
     let resources_clone = resources.clone();
 
     let error_caught = Arc::new(AtomicBool::new(false));
@@ -218,7 +216,7 @@ fn test_command_error(run_loop: &RunLoopLocal) -> std::result::Result<(), String
         window.show();
 
         // Save resources to extend the WebView's lifetime
-        *resources_clone.lock() = Some(Resources {
+        *resources_clone.borrow_mut() = Some(Resources {
             _window: window,
             _webview: webview,
         });

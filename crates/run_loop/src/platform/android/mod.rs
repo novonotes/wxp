@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub type HandleType = usize;
-pub const INVALID_HANDLE: HandleType = 0;
+pub(crate) type HandleType = usize;
+pub(crate) const INVALID_HANDLE: HandleType = 0;
 
 use sys::{libc::*, ndk_sys::*};
 
@@ -28,12 +28,13 @@ use self::sys::libc;
 /// `state_ptr` is a leaked `Weak<State>` handed to the C callbacks and reclaimed
 /// in `Drop`. A `Weak` (not `Rc`) is used so a pending looper callback can never
 /// keep `State` alive past this object's lifetime.
-pub struct PlatformRunLoop {
+pub(crate) struct PlatformRunLoop {
     looper: *mut ALooper,
     pipes: [c_int; 2],
     state: Rc<State>,
     state_ptr: *const State,
     running: Cell<bool>,
+    is_shutdown: Cell<bool>,
 }
 
 struct Timer {
@@ -50,7 +51,7 @@ struct State {
 
 type SenderCallback = Box<dyn FnOnce() + Send>;
 
-pub struct PollSession {
+pub(crate) struct PollSession {
     /// Polling state for `RunLoop::block_on`.
     ///
     /// For the first few milliseconds, poll non-blocking aggressively.
@@ -60,7 +61,7 @@ pub struct PollSession {
 }
 
 impl PollSession {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start: Instant::now(),
             timed_out: false,
@@ -71,11 +72,12 @@ impl PollSession {
 struct Callbacks {
     fd: c_int,
     callbacks: Vec<SenderCallback>,
+    is_shutdown: bool,
 }
 
 #[allow(unused_variables)]
 impl PlatformRunLoop {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let looper = unsafe {
             let mut looper = ALooper_forThread();
             if looper.is_null() {
@@ -94,6 +96,7 @@ impl PlatformRunLoop {
             callbacks: Arc::new(Mutex::new(Callbacks {
                 fd: pipes[1],
                 callbacks: Vec::new(),
+                is_shutdown: false,
             })),
             next_handle: Cell::new(INVALID_HANDLE + 1),
             timers: RefCell::new(HashMap::new()),
@@ -126,6 +129,7 @@ impl PlatformRunLoop {
             state,
             state_ptr,
             running: Cell::new(false),
+            is_shutdown: Cell::new(false),
         }
     }
 
@@ -168,7 +172,7 @@ impl PlatformRunLoop {
         1
     }
 
-    pub fn poll_once(&self, poll_session: &mut PollSession) {
+    pub(crate) fn poll_once(&self, poll_session: &mut PollSession) {
         let timeout_ms = if poll_session.timed_out { -1 } else { 0 };
         unsafe {
             ALooper_pollOnce(
@@ -183,25 +187,31 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
+        if self.is_shutdown.get() {
+            return;
+        }
         self.state.unschedule(handle);
     }
 
     #[must_use]
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
+        if self.is_shutdown.get() {
+            return INVALID_HANDLE;
+        }
         self.state.schedule(in_time, callback)
     }
 
-    pub fn new_sender(&self) -> PlatformRunLoopSender {
+    pub(crate) fn new_sender(&self) -> PlatformRunLoopSender {
         PlatformRunLoopSender {
             callbacks: Arc::downgrade(&self.state.callbacks),
         }
     }
 
-    pub fn run(&self) {
+    pub(crate) fn run(&self) {
         self.running.set(true);
         while self.running.get() {
             let res = unsafe {
@@ -218,9 +228,26 @@ impl PlatformRunLoop {
         }
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.running.set(false);
         unsafe { ALooper_wake(self.looper) };
+    }
+
+    pub(crate) fn shutdown(&self) {
+        if self.is_shutdown.replace(true) {
+            return;
+        }
+
+        self.running.set(false);
+        // Remove the fds from ALooper before dropping queued Rust callbacks.
+        // Otherwise a host could unload the DSO while Android still has a native
+        // readiness callback path back into this library.
+        unsafe {
+            ALooper_removeFd(self.looper, self.pipes[0]);
+            ALooper_removeFd(self.looper, self.state.timer_fd);
+            ALooper_wake(self.looper);
+        }
+        self.state.cancel_all();
     }
 }
 
@@ -293,7 +320,7 @@ impl State {
         r
     }
 
-    pub fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
+    pub(crate) fn schedule<F>(&self, in_time: Duration, callback: F) -> HandleType
     where
         F: FnOnce() + 'static,
     {
@@ -312,38 +339,70 @@ impl State {
         handle
     }
 
-    pub fn unschedule(&self, handle: HandleType) {
+    pub(crate) fn unschedule(&self, handle: HandleType) {
         self.timers.borrow_mut().remove(&handle);
         self.wake_up_at(self.next_timer());
+    }
+
+    fn cancel_all(&self) {
+        let timers = std::mem::take(&mut *self.timers.borrow_mut());
+        // Disarm timerfd even though the fd is closed later in Drop: shutdown is
+        // the synchronous boundary after which no native timer event may fire.
+        let spec = itimerspec {
+            it_interval: timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            it_value: timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        };
+        unsafe {
+            timerfd_settime(self.timer_fd, 0, &spec as *const _, std::ptr::null_mut());
+        }
+
+        let callbacks = self
+            .callbacks
+            .lock()
+            .map(|mut callbacks| {
+                callbacks.is_shutdown = true;
+                std::mem::take(&mut callbacks.callbacks)
+            })
+            .unwrap_or_default();
+        drop((timers, callbacks));
     }
 }
 
 impl Drop for PlatformRunLoop {
     fn drop(&mut self) {
+        self.shutdown();
         unsafe {
-            ALooper_removeFd(self.looper, self.pipes[0]);
-            ALooper_removeFd(self.looper, self.state.timer_fd);
             ALooper_release(self.looper);
             Weak::from_raw(self.state_ptr);
             close(self.pipes[0]);
             close(self.pipes[1]);
+            close(self.state.timer_fd);
         }
     }
 }
 
 #[derive(Clone)]
-pub struct PlatformRunLoopSender {
+pub(crate) struct PlatformRunLoopSender {
     callbacks: std::sync::Weak<Mutex<Callbacks>>,
 }
 
 #[allow(unused_variables)]
 impl PlatformRunLoopSender {
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {
         if let Some(callbacks) = self.callbacks.upgrade() {
             let mut callbacks = callbacks.lock().unwrap();
+            if callbacks.is_shutdown {
+                return false;
+            }
             callbacks.callbacks.push(Box::new(callback));
             // Write to the self-pipe to wake the looper; the byte value is
             // irrelevant, the readable fd is the signal that drains the queue.

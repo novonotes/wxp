@@ -1,4 +1,9 @@
 use crate::initialization::get_initialization_scripts;
+use crate::keyboard::{
+    AcceleratorDestination, KeyEventDestination, KeyboardRouting, WebViewAcceleratorDelivery,
+    apply_keyboard_routing,
+};
+use crate::page_load::PageLoadMonitor;
 use crate::web_context::WebContext;
 use crate::webview::WxpWebView;
 use crate::wxp_channel::internals::setup_channel_protocol;
@@ -6,7 +11,7 @@ use crate::wxp_command::{WxpCommandHandler, setup::setup_invoke_handler_internal
 use crate::wxp_webview::error::{Error, Result};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wry::{WebViewBuilder, http::Response};
@@ -50,6 +55,7 @@ use zip::result::ZipError;
 pub struct WxpWebViewBuilder<'a> {
     builder: WebViewBuilder<'a>,
     command_handler: Option<Rc<WxpCommandHandler>>,
+    keyboard_routing: KeyboardRouting,
 }
 
 impl<'a> WxpWebViewBuilder<'a> {
@@ -57,8 +63,8 @@ impl<'a> WxpWebViewBuilder<'a> {
     ///
     /// # Arguments
     ///
-    /// * `web_context` - Mutable reference to a wxp WebContext.
-    ///                   In a plugin environment, typically use `<system temp>/<plugin name>`.
+    /// * `web_context` - Mutable reference to a wxp WebContext. In a plugin environment, typically
+    ///   use `<system temp>/<plugin name>`.
     pub fn new(web_context: &'a mut WebContext) -> Self {
         // In plugin UIs, the first click on an inactive editor should still reach the WebView
         // so controls like knobs can start dragging immediately after window activation.
@@ -69,7 +75,20 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: None,
+            keyboard_routing: KeyboardRouting::new(
+                KeyEventDestination::WebView,
+                AcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault),
+            ),
         }
+    }
+
+    /// Sets native keyboard routing policy for keys that should bypass the WebView.
+    ///
+    /// Plugin hosts commonly reserve a few global shortcuts while the WebView still needs normal
+    /// key input. Keeping this policy in native code lets the original key event reach the host.
+    pub fn with_keyboard_routing(mut self, routing: KeyboardRouting) -> Self {
+        self.keyboard_routing = routing;
+        self
     }
 
     /// Serves the contents of a directory via a custom protocol.
@@ -121,19 +140,13 @@ impl<'a> WxpWebViewBuilder<'a> {
                 }
 
                 match std::fs::read(&file_path) {
-                    Ok(content) => {
-                        let mime_type = mime_guess::from_path(&file_path)
-                            .first_or_octet_stream()
-                            .to_string();
-
-                        Response::builder()
-                            .header("Content-Type", mime_type)
-                            .header("Access-Control-Allow-Origin", "*")
-                            .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-                            .header("Access-Control-Allow-Headers", "*")
-                            .body(content.into())
-                            .unwrap()
-                    }
+                    Ok(content) => Response::builder()
+                        .header("Content-Type", asset_content_type(&file_path))
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                        .header("Access-Control-Allow-Headers", "*")
+                        .body(content.into())
+                        .unwrap(),
                     Err(_) => Response::builder()
                         .status(404)
                         .header("Content-Type", "text/plain")
@@ -158,12 +171,8 @@ impl<'a> WxpWebViewBuilder<'a> {
         zip_bytes: &'static [u8],
     ) -> Result<Self> {
         let cursor = Cursor::new(zip_bytes);
-        let archive = ZipArchive::new(cursor).map_err(|err| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                err.to_string(),
-            ))
-        })?;
+        let archive = ZipArchive::new(cursor)
+            .map_err(|err| Error::Io(std::io::Error::other(err.to_string())))?;
         let mut filepath_to_index = HashMap::<String, usize>::new();
         archive.file_names().enumerate().for_each(|(i, name)| {
             filepath_to_index.insert(name.to_string(), i);
@@ -248,12 +257,8 @@ impl<'a> WxpWebViewBuilder<'a> {
                                 .unwrap();
                         };
 
-                        let mime_type = mime_guess::from_path(&file_path)
-                            .first_or_octet_stream()
-                            .to_string();
-
                         Response::builder()
-                            .header("Content-Type", mime_type)
+                            .header("Content-Type", asset_content_type(&file_path))
                             .header("Access-Control-Allow-Origin", "*")
                             .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                             .header("Access-Control-Allow-Headers", "*")
@@ -271,7 +276,7 @@ impl<'a> WxpWebViewBuilder<'a> {
                         .header("Content-Type", "text/plain")
                         .header("Access-Control-Allow-Origin", "*")
                         .body(
-                            format!("Internal Server Error: {}", err)
+                            format!("Internal Server Error: {err}")
                                 .as_bytes()
                                 .to_vec()
                                 .into(),
@@ -294,6 +299,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder,
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -306,6 +312,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_url(url.into()),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -317,6 +324,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_html(html.into()),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -327,6 +335,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_devtools(devtools),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -338,6 +347,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_visible(visible),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -349,6 +359,7 @@ impl<'a> WxpWebViewBuilder<'a> {
         Self {
             builder: self.builder.with_bounds(bounds),
             command_handler: self.command_handler,
+            keyboard_routing: self.keyboard_routing,
         }
     }
 
@@ -365,12 +376,18 @@ impl<'a> WxpWebViewBuilder<'a> {
         // Apply initialization scripts
         let has_command_handler = self.command_handler.is_some();
         let initialization_script = get_initialization_scripts(has_command_handler);
+        let page_load = PageLoadMonitor::new();
         let builder = self
             .builder
-            .with_initialization_script(&initialization_script);
+            .with_initialization_script(&initialization_script)
+            .with_on_page_load_handler({
+                let page_load = page_load.clone();
+                move |event, _url| page_load.record(event)
+            });
 
         let webview = builder.build_as_child(window)?;
-        let webview = WxpWebView::new(webview)?;
+        let webview = WxpWebView::new(webview, page_load)?;
+        apply_keyboard_routing(&webview, self.keyboard_routing)?;
         let dispatch = webview.dispatch();
 
         if let Some(handler) = self.command_handler {
@@ -380,5 +397,59 @@ impl<'a> WxpWebViewBuilder<'a> {
         }
 
         Ok(webview)
+    }
+}
+
+/// Returns the `Content-Type` for a served GUI asset, declaring UTF-8 for text formats.
+///
+/// Older WebKit (Safari 16 and earlier) decodes a script served without a `charset`
+/// using the document encoding, even for module scripts. When the page does not declare
+/// one either, that falls back to the user's locale encoding (e.g. Shift_JIS), so any
+/// non-ASCII text in a UTF-8 bundle can turn into a syntax error and the whole GUI fails
+/// to start. Declaring the charset on the response makes decoding independent of the page
+/// and the user's locale. Assets are assumed to be UTF-8, which is what web bundlers emit.
+fn asset_content_type(path: &Path) -> String {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let is_text = mime.type_() == mime_guess::mime::TEXT
+        || matches!(mime.subtype().as_str(), "javascript" | "json" | "xml")
+        || matches!(
+            mime.suffix().map(|suffix| suffix.as_str()),
+            Some("json" | "xml")
+        );
+    if is_text {
+        format!("{}; charset=utf-8", mime.essence_str())
+    } else {
+        mime.essence_str().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asset_content_type;
+    use std::path::Path;
+
+    #[test]
+    fn text_assets_declare_utf8() {
+        for (file, expected) in [
+            ("index.html", "text/html; charset=utf-8"),
+            ("assets/index.js", "text/javascript; charset=utf-8"),
+            ("assets/index.css", "text/css; charset=utf-8"),
+            ("data.json", "application/json; charset=utf-8"),
+            ("icon.svg", "image/svg+xml; charset=utf-8"),
+        ] {
+            assert_eq!(asset_content_type(Path::new(file)), expected, "{file}");
+        }
+    }
+
+    #[test]
+    fn binary_assets_have_no_charset() {
+        for (file, expected) in [
+            ("image.png", "image/png"),
+            ("font.woff2", "font/woff2"),
+            ("module.wasm", "application/wasm"),
+            ("unknown.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(asset_content_type(Path::new(file)), expected, "{file}");
+        }
     }
 }

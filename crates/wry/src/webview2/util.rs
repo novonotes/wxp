@@ -12,7 +12,7 @@ use windows::{
     },
     System::LibraryLoader::{GetProcAddress, LoadLibraryW},
     UI::{
-      HiDpi::{MDT_EFFECTIVE_DPI, MONITOR_DPI_TYPE},
+      HiDpi::{DPI_AWARENESS_CONTEXT, MDT_EFFECTIVE_DPI, MONITOR_DPI_TYPE},
       WindowsAndMessaging::IsProcessDPIAware,
     },
   },
@@ -50,6 +50,63 @@ static GET_DPI_FOR_WINDOW: Lazy<Option<GetDpiForWindow>> =
   Lazy::new(|| get_function!("user32.dll", GetDpiForWindow));
 static GET_DPI_FOR_MONITOR: Lazy<Option<GetDpiForMonitor>> =
   Lazy::new(|| get_function!("shcore.dll", GetDpiForMonitor));
+
+pub type GetWindowDpiAwarenessContext =
+  unsafe extern "system" fn(hwnd: HWND) -> DPI_AWARENESS_CONTEXT;
+pub type SetThreadDpiAwarenessContext =
+  unsafe extern "system" fn(context: DPI_AWARENESS_CONTEXT) -> DPI_AWARENESS_CONTEXT;
+
+static GET_WINDOW_DPI_AWARENESS_CONTEXT: Lazy<Option<GetWindowDpiAwarenessContext>> =
+  Lazy::new(|| get_function!("user32.dll", GetWindowDpiAwarenessContext));
+static SET_THREAD_DPI_AWARENESS_CONTEXT: Lazy<Option<SetThreadDpiAwarenessContext>> =
+  Lazy::new(|| get_function!("user32.dll", SetThreadDpiAwarenessContext));
+
+/// Runs window geometry calls in the DPI awareness context of a given window.
+///
+/// Win32 interprets coordinates passed to `SetWindowPos` and returned by `GetClientRect` in the
+/// calling thread's DPI awareness context, not the target window's. A host can create the parent
+/// window in a DPI-unaware context while its thread defaults to per-monitor awareness, and then
+/// deliver only some callbacks (such as the WebView2 controller completion) outside its unaware
+/// scope. Without this guard those callbacks size the container in physical pixels while the
+/// parent lays out in virtualized pixels, so the container ends up smaller than the parent and
+/// clips the WebView.
+pub struct WindowDpiContextGuard {
+  previous: Option<DPI_AWARENESS_CONTEXT>,
+}
+
+impl WindowDpiContextGuard {
+  #[allow(non_snake_case)]
+  pub fn enter(hwnd: HWND) -> Self {
+    let (Some(GetWindowDpiAwarenessContext), Some(SetThreadDpiAwarenessContext)) = (
+      *GET_WINDOW_DPI_AWARENESS_CONTEXT,
+      *SET_THREAD_DPI_AWARENESS_CONTEXT,
+    ) else {
+      // Before Windows 10 1607 the awareness is per process, so there is nothing to align.
+      return Self { previous: None };
+    };
+    // Both functions report failure only as NULL. `DPI_AWARENESS_CONTEXT::is_invalid()` also
+    // rejects -1, which is the valid `DPI_AWARENESS_CONTEXT_UNAWARE`, so check for NULL directly.
+    let context = unsafe { GetWindowDpiAwarenessContext(hwnd) };
+    if context.0.is_null() {
+      return Self { previous: None };
+    }
+    let previous = unsafe { SetThreadDpiAwarenessContext(context) };
+    Self {
+      previous: (!previous.0.is_null()).then_some(previous),
+    }
+  }
+}
+
+impl Drop for WindowDpiContextGuard {
+  #[allow(non_snake_case)]
+  fn drop(&mut self) {
+    if let (Some(previous), Some(SetThreadDpiAwarenessContext)) =
+      (self.previous, *SET_THREAD_DPI_AWARENESS_CONTEXT)
+    {
+      unsafe { SetThreadDpiAwarenessContext(previous) };
+    }
+  }
+}
 
 pub const BASE_DPI: u32 = 96;
 pub fn dpi_to_scale_factor(dpi: u32) -> f64 {

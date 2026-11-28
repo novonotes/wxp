@@ -7,13 +7,13 @@ use std::sync::{
 
 use crate::{SystemThreadId, get_system_thread_id, platform::PlatformRunLoopSender};
 
-/// A `Send + Clone` handle for posting callbacks onto a run loop from any thread.
-///
-/// This is the only sanctioned way to reach the run loop thread from background
-/// work: it lets `!Send` thread-affine state (native windows, WebView channels)
-/// stay on its owning thread while other threads merely enqueue work for it.
+// Internal cross-thread enqueue handle.
+//
+// Public callers should use `RunLoop::post` or `RunLoop::call`. Keeping this
+// private lets thread-affine state stay on the run loop thread while internal
+// tasks and wakers can still enqueue work from other threads.
 #[derive(Clone)]
-pub struct RunLoopSender {
+pub(crate) struct RunLoopSender {
     thread_id: SystemThreadId,
     platform_sender: PlatformRunLoopSender,
     shutdown_token: Weak<AtomicBool>,
@@ -39,13 +39,7 @@ impl RunLoopSender {
         }
     }
 
-    /// Returns true if this sender targets the current thread.
-    pub fn is_same_thread(&self) -> bool {
-        get_system_thread_id() == self.thread_id
-    }
-
-    /// Schedules the callback to be executed on run loop and returns immediately.
-    pub fn send<F>(&self, callback: F) -> bool
+    pub(crate) fn send<F>(&self, callback: F) -> bool
     where
         F: FnOnce() + 'static + Send,
     {

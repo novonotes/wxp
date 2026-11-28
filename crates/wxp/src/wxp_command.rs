@@ -11,6 +11,4 @@ pub(crate) mod setup;
 mod unified;
 
 pub use context::CommandContext;
-#[doc(hidden)]
-pub use context::TryFromDeserializeContext;
 pub use handler::WxpCommandHandler;

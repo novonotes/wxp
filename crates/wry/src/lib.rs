@@ -2217,6 +2217,90 @@ pub enum MemoryUsageLevel {
   Low,
 }
 
+/// Destination for native keyDown/keyUp-style events intercepted before the WebView consumes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardEventDestination {
+  /// Let the WebView process the key normally.
+  WebView,
+  /// Forward the key to the parent window/view and stop WebView processing.
+  Parent,
+  /// Forward the key to the parent window/view and continue WebView processing.
+  WebViewAndParent,
+}
+
+/// How an accelerator routed to the WebView is delivered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebViewAcceleratorDelivery {
+  /// Preserve the platform WebView's standard shortcut behavior.
+  PlatformDefault,
+  /// Deliver the accelerator through the WebView's key event path.
+  KeyEvent,
+}
+
+/// Destination for platform accelerator/key-equivalent events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardAcceleratorDestination {
+  /// Let the WebView process the accelerator using the selected delivery contract.
+  WebView(WebViewAcceleratorDelivery),
+  /// Forward the accelerator to the parent window/view and stop WebView processing.
+  Parent,
+  /// Forward the accelerator to the parent and also deliver it to the WebView.
+  WebViewAndParent(WebViewAcceleratorDelivery),
+}
+
+/// Keyboard routing policy using native key codes for the active backend.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardEventRouting<KeyCode> {
+  pub key_event_default: KeyboardEventDestination,
+  pub accelerator_default: KeyboardAcceleratorDestination,
+  pub key_event_routes: Vec<KeyboardEventRoute<KeyCode>>,
+  pub accelerator_routes: Vec<KeyboardAcceleratorRoute<KeyCode>>,
+}
+
+impl<KeyCode> Default for KeyboardEventRouting<KeyCode> {
+  fn default() -> Self {
+    Self {
+      key_event_default: KeyboardEventDestination::WebView,
+      accelerator_default: KeyboardAcceleratorDestination::WebView(
+        WebViewAcceleratorDelivery::PlatformDefault,
+      ),
+      key_event_routes: Vec::new(),
+      accelerator_routes: Vec::new(),
+    }
+  }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardEventRoute<KeyCode> {
+  pub chord: KeyboardEventChord<KeyCode>,
+  pub destination: KeyboardEventDestination,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardAcceleratorRoute<KeyCode> {
+  pub chord: KeyboardEventChord<KeyCode>,
+  pub destination: KeyboardAcceleratorDestination,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyboardEventChord<KeyCode> {
+  pub key_code: KeyCode,
+  pub modifiers: KeyboardEventModifiers,
+}
+
+/// Exact modifier matcher for a keyboard route.
+///
+/// When `any` is false, every modifier field is matched exactly. This prevents a route for a bare
+/// key from also catching command/control shortcuts. When `any` is true, modifiers are ignored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardEventModifiers {
+  pub shift: bool,
+  pub control: bool,
+  pub alt: bool,
+  pub meta: bool,
+  pub any: bool,
+}
+
 /// Additional methods on `WebView` that are specific to Windows.
 #[cfg(target_os = "windows")]
 pub trait WebViewExtWindows {
@@ -2262,6 +2346,9 @@ pub trait WebViewExtWindows {
 
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND;
+
+  /// Routes matching key messages before WebView2 consumes them.
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u32>) -> Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -2293,6 +2380,10 @@ impl WebViewExtWindows for WebView {
   /// Returns the child HWND hosting this webview.
   fn hwnd(&self) -> windows::Win32::Foundation::HWND {
     self.webview.hwnd()
+  }
+
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u32>) -> Result<()> {
+    self.webview.set_keyboard_event_routing(routing)
   }
 }
 
@@ -2394,6 +2485,9 @@ pub trait WebViewExtMacOS {
   /// Warning: Do not use this if your chosen window library does not support traffic light insets.
   /// Warning: Only use this in **decorated** windows with a **hidden titlebar**!
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()>;
+
+  /// Routes matching key events before WebKit consumes them.
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u16>) -> Result<()>;
 }
 
 #[cfg(target_os = "macos")]
@@ -2420,6 +2514,11 @@ impl WebViewExtMacOS for WebView {
 
   fn set_traffic_light_inset<P: Into<dpi::Position>>(&self, position: P) -> Result<()> {
     self.webview.set_traffic_light_inset(position.into())
+  }
+
+  fn set_keyboard_event_routing(&self, routing: KeyboardEventRouting<u16>) -> Result<()> {
+    self.webview.webview.set_keyboard_event_routing(routing);
+    Ok(())
   }
 }
 

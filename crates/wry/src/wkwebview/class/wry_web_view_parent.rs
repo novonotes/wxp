@@ -80,15 +80,14 @@ define_class!(
 
       let embedded_webview = self.ivars().embedded_webview.borrow();
       if let Some(webview) = embedded_webview.as_ref() {
-        if !crate::wkwebview::keyboard_routing::has_keyboard_focus(webview) {
-          // AppKit offers key equivalents to every view in the window, not only to the first
-          // responder. Claiming them here while the WebView is not focused would swallow host
-          // shortcuts (for example closing the plugin window) whenever the embedded view is
-          // merely visible. Leave them to the host; routing rules apply only while the WebView
-          // owns keyboard input.
-          return Bool::NO;
-        }
         let destination = crate::wkwebview::keyboard_routing::route_accelerator(webview, event);
+        // AppKit offers key equivalents to every view in the window, not only to the first
+        // responder, so this also runs while the WebView is only visible.
+        let destination = if crate::wkwebview::keyboard_routing::has_keyboard_focus(webview) {
+          destination
+        } else {
+          crate::wkwebview::keyboard_routing::unfocused_accelerator_destination(destination)
+        };
 
         match destination {
           crate::KeyboardAcceleratorDestination::WebView(delivery) => {

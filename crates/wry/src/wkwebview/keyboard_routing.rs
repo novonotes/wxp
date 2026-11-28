@@ -6,7 +6,7 @@ use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSView};
 use crate::wkwebview::class::wry_web_view::WryWebView;
 use crate::{
   KeyboardAcceleratorDestination, KeyboardEventDestination, KeyboardEventModifiers,
-  KeyboardEventRouting,
+  KeyboardEventRouting, WebViewAcceleratorDelivery,
 };
 
 pub(crate) fn set_routing(webview: &WryWebView, routing: KeyboardEventRouting<u16>) {
@@ -51,6 +51,25 @@ pub(crate) fn has_keyboard_focus(webview: &WryWebView) -> bool {
   responder
     .downcast::<NSView>()
     .is_ok_and(|view| view.isDescendantOf(webview))
+}
+
+/// Destination of an accelerator while the WebView does not have keyboard focus.
+///
+/// `PlatformDefault` asks WebKit for its native behavior, such as editing commands, which only
+/// applies to a focused WebView. Claiming those events without focus would swallow host shortcuts
+/// (for example closing the plugin window) whenever the embedded view is visible, so they go to
+/// the host instead. `KeyEvent` is an explicit request from the application to own the shortcut,
+/// so it keeps reaching the DOM regardless of focus.
+pub(crate) fn unfocused_accelerator_destination(
+  destination: KeyboardAcceleratorDestination,
+) -> KeyboardAcceleratorDestination {
+  match destination {
+    KeyboardAcceleratorDestination::WebView(WebViewAcceleratorDelivery::PlatformDefault)
+    | KeyboardAcceleratorDestination::WebViewAndParent(
+      WebViewAcceleratorDelivery::PlatformDefault,
+    ) => KeyboardAcceleratorDestination::Parent,
+    destination => destination,
+  }
 }
 
 pub(crate) fn route_accelerator(
@@ -180,7 +199,8 @@ fn forward_to_parent(webview: &WryWebView, event: &NSEvent, selector: Sel) {
 
 #[cfg(test)]
 mod tests {
-  use super::standard_editing_action_for;
+  use super::{standard_editing_action_for, unfocused_accelerator_destination};
+  use crate::{KeyboardAcceleratorDestination, WebViewAcceleratorDelivery};
   use objc2_app_kit::NSEventModifierFlags;
 
   #[test]
@@ -203,5 +223,30 @@ mod tests {
       ),
       None,
     );
+  }
+
+  #[test]
+  fn unfocused_webview_leaves_only_platform_default_accelerators_to_the_host() {
+    use KeyboardAcceleratorDestination::{Parent, WebView, WebViewAndParent};
+    use WebViewAcceleratorDelivery::{KeyEvent, PlatformDefault};
+
+    assert_eq!(
+      unfocused_accelerator_destination(WebView(PlatformDefault)),
+      Parent
+    );
+    assert_eq!(
+      unfocused_accelerator_destination(WebViewAndParent(PlatformDefault)),
+      Parent
+    );
+    // Shortcuts the application explicitly owns keep their DOM delivery without focus.
+    assert_eq!(
+      unfocused_accelerator_destination(WebView(KeyEvent)),
+      WebView(KeyEvent)
+    );
+    assert_eq!(
+      unfocused_accelerator_destination(WebViewAndParent(KeyEvent)),
+      WebViewAndParent(KeyEvent)
+    );
+    assert_eq!(unfocused_accelerator_destination(Parent), Parent);
   }
 }

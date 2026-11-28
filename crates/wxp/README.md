@@ -75,6 +75,7 @@ let webview = WxpWebViewBuilder::new(&mut web_context)
 
 Key-event routes control regular keyDown/keyUp-style events. Accelerator routes control platform
 shortcut paths such as macOS key equivalents or Windows accelerator-style messages.
+Routing applies only while the WebView has keyboard focus; without focus, keys go to the host.
 `WebViewAcceleratorDelivery::PlatformDefault` preserves standard WebView shortcut behavior, while
 `KeyEvent` guarantees the DOM key event path for application-defined shortcuts.
 Common keys are mapped on supported platforms. Use `KeyboardKey::native` when a host integration

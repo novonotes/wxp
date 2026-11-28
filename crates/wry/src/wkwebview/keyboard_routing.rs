@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use objc2::{msg_send, runtime::Sel, DeclaredClass};
-use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSView};
 
 use crate::wkwebview::class::wry_web_view::WryWebView;
 use crate::{
@@ -39,6 +39,18 @@ impl Drop for ParentForwardGuard {
   fn drop(&mut self) {
     PARENT_FORWARD_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
   }
+}
+
+/// Whether the WebView, or a view inside it, is the window's first responder.
+pub(crate) fn has_keyboard_focus(webview: &WryWebView) -> bool {
+  let Some(responder) = webview.window().and_then(|window| window.firstResponder()) else {
+    return false;
+  };
+  // A non-view first responder (the window itself, or a field editor outside the WebView) means
+  // keyboard input does not belong to this WebView.
+  responder
+    .downcast::<NSView>()
+    .is_ok_and(|view| view.isDescendantOf(webview))
 }
 
 pub(crate) fn route_accelerator(

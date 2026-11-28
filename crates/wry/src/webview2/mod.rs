@@ -329,6 +329,9 @@ impl InnerWebView {
     let dpi = unsafe { util::hwnd_dpi(parent) };
     let scale_factor = util::dpi_to_scale_factor(dpi);
 
+    // Creation can run from a deferred task outside the host's DPI scope. The coordinates below
+    // are in the parent's coordinate space, so create the container in the parent's context.
+    let _dpi_context = util::WindowDpiContextGuard::enter(parent);
     let (x, y, width, height) = if is_child {
       let (x, y) = attributes
         .bounds
@@ -735,6 +738,9 @@ impl InnerWebView {
     size: PhysicalSize<i32>,
     position: PhysicalPosition<i32>,
   ) -> Result<()> {
+    // The controller completion callback can run outside the host's DPI scope; see
+    // `WindowDpiContextGuard`.
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     unsafe {
       controller.SetBounds(RECT {
         top: 0,
@@ -1559,6 +1565,7 @@ impl InnerWebView {
   }
 
   fn parent_bounds(hwnd: HWND) -> Result<PhysicalSize<i32>> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     let mut client_rect = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client_rect)? };
     Ok(PhysicalSize::new(
@@ -1580,28 +1587,29 @@ impl InnerWebView {
         if wparam.0 != SIZE_MINIMIZED as usize {
           let controller = dwrefdata as *mut ICoreWebView2Controller;
 
-          let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
-            return DefSubclassProc(hwnd, msg, wparam, lparam);
-          };
+          // Keep the bounds read and the writes below in the same coordinate space. The guard is
+          // scoped to this block so it is restored before `DefSubclassProc` runs below.
+          let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
+          if let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) {
+            let _ = (*controller).SetBounds(RECT {
+              left: 0,
+              top: 0,
+              right: width,
+              bottom: height,
+            });
 
-          let _ = (*controller).SetBounds(RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-          });
-
-          let mut hwnd = HWND::default();
-          if (*controller).ParentWindow(&mut hwnd).is_ok() {
-            let _ = SetWindowPos(
-              hwnd,
-              None,
-              0,
-              0,
-              width,
-              height,
-              SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
-            );
+            let mut hwnd = HWND::default();
+            if (*controller).ParentWindow(&mut hwnd).is_ok() {
+              let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                width,
+                height,
+                SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
+              );
+            }
           }
         }
       }
@@ -1832,6 +1840,7 @@ impl InnerWebView {
   }
 
   pub fn bounds(&self) -> Result<Rect> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     let mut bounds = Rect::default();
     let mut rect = RECT::default();
     if self.is_child {
@@ -1863,6 +1872,8 @@ impl InnerWebView {
     if let Some(controller) = self.state.borrow().controller.clone() {
       return Self::apply_bounds(self.hwnd, &controller, size, position);
     }
+
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
 
     // Some DAWs resize the embedded editor immediately after construction. Move the container HWND
     // now so host layout is correct, then apply WebView2 bounds once the controller exists.

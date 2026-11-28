@@ -79,6 +79,8 @@ Routing applies only while the WebView has keyboard focus. Without focus, keys g
 every platform: Windows delivers key messages only to the focused window, and on macOS, where
 AppKit offers key equivalents to every view in a window, an unfocused embedded WebView leaves
 them to the host.
+`WebViewAcceleratorDelivery::PlatformDefault` preserves standard WebView shortcut behavior, while
+`KeyEvent` guarantees the DOM key event path for application-defined shortcuts.
 Common keys are mapped on supported platforms. Use `KeyboardKey::native` when a host integration
 needs a platform-specific key code that is not covered by the common key list.
 The `WebViewAndParent` destinations forward a matching key to the parent and still let the WebView

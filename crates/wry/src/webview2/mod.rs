@@ -329,6 +329,9 @@ impl InnerWebView {
     let dpi = unsafe { util::hwnd_dpi(parent) };
     let scale_factor = util::dpi_to_scale_factor(dpi);
 
+    // Creation can run from a deferred task outside the host's DPI scope. The coordinates below
+    // are in the parent's coordinate space, so create the container in the parent's context.
+    let _dpi_context = util::WindowDpiContextGuard::enter(parent);
     let (x, y, width, height) = if is_child {
       let (x, y) = attributes
         .bounds
@@ -1584,6 +1587,8 @@ impl InnerWebView {
         if wparam.0 != SIZE_MINIMIZED as usize {
           let controller = dwrefdata as *mut ICoreWebView2Controller;
 
+          // Keep the bounds read and the writes below in the same coordinate space.
+          let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
           let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
             return DefSubclassProc(hwnd, msg, wparam, lparam);
           };
@@ -1865,10 +1870,11 @@ impl InnerWebView {
     size: PhysicalSize<i32>,
     position: PhysicalPosition<i32>,
   ) -> Result<()> {
-    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     if let Some(controller) = self.state.borrow().controller.clone() {
       return Self::apply_bounds(self.hwnd, &controller, size, position);
     }
+
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
 
     // Some DAWs resize the embedded editor immediately after construction. Move the container HWND
     // now so host layout is correct, then apply WebView2 bounds once the controller exists.

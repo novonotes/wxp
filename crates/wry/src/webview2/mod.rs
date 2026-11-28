@@ -1562,6 +1562,7 @@ impl InnerWebView {
   }
 
   fn parent_bounds(hwnd: HWND) -> Result<PhysicalSize<i32>> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     let mut client_rect = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client_rect)? };
     Ok(PhysicalSize::new(
@@ -1897,7 +1898,6 @@ impl InnerWebView {
   }
 
   fn resize_to_parent(&self) -> crate::Result<()> {
-    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     let parent_bounds = Self::parent_bounds(*self.parent.borrow())?;
     self.set_bounds_inner(parent_bounds, (0, 0).into())
   }

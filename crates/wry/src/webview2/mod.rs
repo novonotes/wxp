@@ -735,6 +735,9 @@ impl InnerWebView {
     size: PhysicalSize<i32>,
     position: PhysicalPosition<i32>,
   ) -> Result<()> {
+    // The controller completion callback can run outside the host's DPI scope; see
+    // `WindowDpiContextGuard`.
+    let _dpi_context = util::WindowDpiContextGuard::enter(hwnd);
     unsafe {
       controller.SetBounds(RECT {
         top: 0,
@@ -1832,6 +1835,7 @@ impl InnerWebView {
   }
 
   pub fn bounds(&self) -> Result<Rect> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     let mut bounds = Rect::default();
     let mut rect = RECT::default();
     if self.is_child {
@@ -1860,6 +1864,7 @@ impl InnerWebView {
     size: PhysicalSize<i32>,
     position: PhysicalPosition<i32>,
   ) -> Result<()> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     if let Some(controller) = self.state.borrow().controller.clone() {
       return Self::apply_bounds(self.hwnd, &controller, size, position);
     }
@@ -1892,6 +1897,7 @@ impl InnerWebView {
   }
 
   fn resize_to_parent(&self) -> crate::Result<()> {
+    let _dpi_context = util::WindowDpiContextGuard::enter(self.hwnd);
     let parent_bounds = Self::parent_bounds(*self.parent.borrow())?;
     self.set_bounds_inner(parent_bounds, (0, 0).into())
   }
